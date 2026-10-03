@@ -1,21 +1,120 @@
 {
   "canvas": [119, 129],
-  "note": "所有图层画布相同、左上角对齐，按 layers 顺序从下往上叠放，透明像素跳过",
-  "layers": ["hair", "main", "eyes", "mouth"],
+  "stage": { "size": [119, 153], "characterOffset": [0, 24] },
+  "note": "角色图层画布统一 119×129，左上角对齐，整体放到舞台的 characterOffset 处；按 layers 顺序从下往上叠放，透明像素跳过；特效坐标是舞台坐标，特效图左边对齐 x、底边对齐 y",
+  "layers": ["hair", "body", "eyes", "mouth", "fx"],
   "hair": {
     "frames": ["hair_c.png", "hair_l.png", "hair_c.png", "hair_r.png"],
     "frameMs": 800,
     "alternatives": { "hair_l_big.png": "大幅度左飘，可用于跳跃、甩头等大动作" }
   },
-  "main": "main.png",
   "eyes": {
     "blink": [["eye_half.png", 60], ["eye_closed.png", 90], ["eye_half.png", 60]],
     "intervalMs": [2500, 5500]
   },
   "mouth": { "open": "mouth_open.png", "talkToggleMs": 140 },
+  "transitions": "进入某状态先播它的 enter 再停在 body；离开时先播当前状态的 exit；没有 enter/exit 的直接切换。eyes：blink 正常眨眼、off 不叠眼睛层（主体自带眼睛表情）、写文件名则常驻叠这张眼睛补丁（睡觉用 eye_sleep.png）；mouth：false 时不叠嘴巴层",
+  "states": {
+    "idle": { "hook": "SessionStart / Stop 之后", "body": "main.png", "eyes": "blink", "mouth": true },
+    "think": {
+      "hook": "UserPromptSubmit，以及 PostToolUse 之后等待下一步",
+      "enter": [["main_think_mid.png", 90]],
+      "body": "main_think.png",
+      "exit": [["main_think_mid.png", 90]],
+      "eyes": "blink", "mouth": false,
+      "fx": {
+        "anchor": [78, 23],
+        "loop": [
+          { "ms": 320, "sprites": [["fx_dot.png", 0, 0]] },
+          { "ms": 320, "sprites": [["fx_dot.png", 0, 0], ["fx_dot.png", 6, 0]] },
+          { "ms": 480, "sprites": [["fx_dot.png", 0, 0], ["fx_dot.png", 6, 0], ["fx_dot.png", 12, 0]] },
+          { "ms": 360, "sprites": [] }
+        ]
+      }
+    },
+    "working": {
+      "hook": "PreToolUse",
+      "body": "main_work.png",
+      "eyes": "blink", "mouth": false,
+      "tap": { "frame": "main_work_tap.png", "downMs": 90, "gapMs": [90, 210], "burst": [3, 6], "pauseMs": [400, 1100] }
+    },
+    "notice": {
+      "hook": "Notification",
+      "enter": [["main_notice_mid.png", 90]],
+      "body": "main_notice.png",
+      "exit": [["main_notice_mid.png", 90]],
+      "eyes": "blink", "mouth": false,
+      "fx": {
+        "anchor": [78, 28],
+        "pop": [
+          { "ms": 60,  "sprites": [["fx_bang_squash.png", 0, 0]] },
+          { "ms": 80,  "sprites": [["fx_bang_stretch.png", 0, -3]] },
+          { "ms": 140, "sprites": [["fx_bang.png", 0, -1], ["fx_spark.png", -7, -5]] },
+          { "ms": 160, "sprites": [["fx_bang.png", 0, 0], ["fx_spark.png", -7, -4]] }
+        ],
+        "hold": { "sprite": "fx_bang.png", "bobPx": -1, "bobMs": 400 },
+        "repeatMs": 3500
+      }
+    },
+    "done": {
+      "hook": "Stop",
+      "body": "main_done.png",
+      "eyes": "off", "mouth": false,
+      "durationMs": 2200, "then": "idle",
+      "fx": {
+        "anchor": [0, 0],
+        "loop": [
+          { "ms": 220, "sprites": [["fx_star_big.png", 12, 52], ["fx_star_small.png", 100, 36], ["fx_star_small.png", 22, 30]] },
+          { "ms": 220, "sprites": [["fx_star_small.png", 14, 50], ["fx_star_big.png", 98, 38], ["fx_star_big.png", 20, 32]] }
+        ]
+      }
+    },
+    "error": {
+      "hook": "StopFailure",
+      "body": "main_error.png",
+      "eyes": "off", "mouth": false,
+      "sticky": "停留到下一次 UserPromptSubmit",
+      "fx": {
+        "anchor": [51, 27],
+        "loop": [
+          { "ms": 220, "sprites": [["fx_cloud_a.png", 0, 0], ["fx_sweat.png", -22, 25]] },
+          { "ms": 220, "sprites": [["fx_cloud_b.png", 0, -1], ["fx_sweat.png", -22, 25]] }
+        ]
+      }
+    },
+    "sleep": {
+      "hook": "长时间无活动或 SessionEnd 之后",
+      "body": "main.png",
+      "eyes": "eye_sleep.png", "mouth": false,
+      "hairFrameMs": 1600,
+      "fx": {
+        "anchor": [86, 32],
+        "loop": [
+          { "ms": 350, "sprites": [["fx_z_small.png", 0, 0],  ["fx_z_big.png", 4, -7]] },
+          { "ms": 350, "sprites": [["fx_z_small.png", 1, -2], ["fx_z_big.png", 5, -10]] },
+          { "ms": 350, "sprites": [["fx_z_small.png", 2, -4], ["fx_z_big.png", 6, -13]] },
+          { "ms": 350, "sprites": [["fx_z_big.png", 4, -7]] },
+          { "ms": 350, "sprites": [["fx_z_small.png", 0, 0],  ["fx_z_big.png", 5, -10]] },
+          { "ms": 350, "sprites": [["fx_z_small.png", 1, -2], ["fx_z_big.png", 6, -13]] }
+        ]
+      }
+    }
+  },
+  "reactions": {
+    "toolFailure": {
+      "hook": "PostToolUseFailure",
+      "note": "不切换状态，在当前画面上额外叠一层短暂特效，播完消失；工具失败很常见，Claude 通常会自己接着修",
+      "anchor": [30, 52],
+      "frames": [
+        { "ms": 120,  "sprites": [["fx_sweat.png", 0, -3]] },
+        { "ms": 120,  "sprites": [["fx_sweat.png", 0, -1]] },
+        { "ms": 1000, "sprites": [["fx_sweat.png", 0, 0]] }
+      ]
+    }
+  },
   "reserved": {
-    "arms.png": "手臂层（原图减去无手臂图），留给打字、托腮等动作",
-    "noarm.png": "无手臂的整身图，手臂抬起后露出的底图",
-    "full.png": "原始全身图还原后的像素版，作对照用"
+    "full.png": "原始全身图还原后的像素版，作对照用",
+    "arms.png": "已不再使用：手臂类状态改为整张替换主体",
+    "noarm.png": "已不再使用：带静态后发，会和后发层重叠"
   }
 }
