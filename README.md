@@ -34,8 +34,9 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 
 ```
 assets/                    像素素材（只读输入，manifest.json 是动画参数的唯一来源）
+installer/                 Inno Setup 安装包脚本
 plugin/                    Claude Code 插件，注册 hook（说明见 plugin/README.md）
-scripts/                   Windows 服务的安装 / 卸载脚本
+scripts/                   Windows 服务的安装 / 卸载脚本、安装包构建脚本
 src/
   StatusHub.Contracts/     共享 DTO：状态枚举、快照、事件、Hub 路径与方法名
   StatusHub.Service/       后台服务：接收 hook、归约状态、SignalR 广播
@@ -48,6 +49,41 @@ tests/                     与 src/ 对应的测试项目
 - Windows 10/11
 - .NET 10 SDK（安装脚本用它发布服务；运行服务需要 .NET 10 运行时和 ASP.NET Core 运行时，装了 SDK 就都有）
 - Claude Code，并且运行环境里有 `sh` 和 `curl`（原生 Windows 用 Git Bash 即可；WSL 发行版一般自带）
+
+## 安装包
+
+推荐的安装方式。构建安装包需要 .NET 10 SDK 和 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install JRSoftware.InnoSetup`），不需要管理员权限：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.1.0
+```
+
+产物是 `artifacts\installer\ClaudePet-Setup-0.1.0.exe`。两个程序都自带 .NET 运行时，目标机器不用另装。运行安装包需要管理员权限，它会：
+
+1. 安装后台服务和桌宠，并注册 `ClaudePetStatusHub` 服务（开机自动启动，崩溃后 5 秒重启）；
+2. 以当前用户身份注册 Claude Code 插件（本机没有 `claude` 命令时会提示手动注册的命令）；
+3. 创建开始菜单快捷方式；勾选"登录 Windows 时自动启动桌宠"时写入开机自启。
+
+固定位置：
+
+| 内容 | 位置 |
+| --- | --- |
+| 后台服务 | `C:\Program Files\ClaudePet\StatusHub\` |
+| 桌宠和内置角色 | `C:\Program Files\ClaudePet\DeskPet\`（角色在 `characters\` 下） |
+| Claude Code 插件 | `C:\Program Files\ClaudePet\plugin\` |
+| hook 日志 | `C:\ProgramData\ClaudePet\hooks\` |
+| 自己添加的角色 | `%LOCALAPPDATA%\ClaudePet\characters\` |
+| 窗口位置、缩放、选中的角色 | `%LOCALAPPDATA%\ClaudePet\DeskPet\window.json` |
+| 开机自启 | 注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `ClaudePet` 值 |
+
+- **升级**：直接运行新版本的安装包，它会先停掉服务和桌宠，再覆盖安装。
+- **卸载**：在"设置 → 应用"或开始菜单里卸载。会删除服务、插件注册和开机自启；hook 日志和自己添加的角色会保留。
+- **插件**：
+  - 安装包会把插件市场 `deskpet-local` 换成安装目录里的那份。如果之前从仓库目录注册过，会被替换。
+  - 插件只对 Windows 上的 Claude Code 生效；Claude Code 跑在 WSL 里时，仍需按下文"3. 安装 Claude Code 插件"手动注册。
+- **向导语言**：安装向导界面是英文，因为当前 Inno Setup 没有自带简体中文语言包。
+
+下面"使用"一节是开发时从源码手动安装的方式。
 
 ## 使用
 
