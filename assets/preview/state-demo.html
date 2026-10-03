@@ -25,6 +25,8 @@ aside{background:var(--panel);border:1px solid var(--line);border-radius:6px;pad
 .grid button small{display:block;color:var(--mute);font-size:12px}
 .grid button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 .grid button[aria-pressed="true"] small{color:#fff;opacity:.85}
+.pace{display:flex;flex-direction:column;gap:6px}
+.pace .grid{margin:0}
 button{font:inherit;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:7px 10px;border-radius:4px;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 label{display:flex;gap:8px;align-items:center;cursor:pointer}
@@ -38,13 +40,14 @@ label{display:flex;gap:8px;align-items:center;cursor:pointer}
 </style></head><body>
 <main>
 <h1>状态小人：七个状态</h1>
-<p class="sub">动画参数全部读自内嵌的 manifest.json，和 runtime 里那份是同一个文件。点状态按钮可以手动切，完成状态播 2.2 秒后自动回到空闲，错误状态会一直停着。工具失败不是状态，而是在当前画面上闪一下汗珠。</p>
+<p class="sub">动画参数全部读自内嵌的 manifest.json，和 runtime 里那份是同一个文件。点状态按钮可以手动切，完成状态播 2.2 秒后自动回到空闲，错误状态会一直停着。工具失败不是状态，而是在当前画面上闪一下汗珠。工作中有两种节奏：执行工具时敲得密（active），两次工具调用之间敲得稀（composing），切换节奏不播进出过渡。</p>
 <div class="stage"><div id="tag">状态：<b id="cur"></b></div><canvas id="cv" width="119" height="153"></canvas></div>
 <aside>
   <div class="grid" id="states"></div>
+  <div class="pace"><span class="hint">工作中节奏（读自 manifest 的 paces）</span><div class="grid" id="paces"></div></div>
   <button id="fail">模拟工具失败 <small style="color:var(--mute)">PostToolUseFailure</small></button>
   <label><input type="checkbox" id="auto" checked>按一次典型任务的顺序自动播放</label>
-  <p class="hint" id="autohint">空闲 → 思考 → 工作中（中途一次工具失败）→ 等待确认 → 工作中 → 完成 → 空闲 → 思考 → 错误 → 睡觉</p>
+  <p class="hint" id="autohint">空闲 → 思考 → 工作中（执行工具 / 工具之间交替，中途一次工具失败）→ 等待确认 → 工作中 → 完成 → 空闲 → 思考 → 错误 → 睡觉</p>
   <label>放大倍数 <input type="range" id="zoom" min="2" max="6" value="4"></label>
 </aside>
 <section class="layers">
@@ -78,7 +81,7 @@ const M={
   "states": {
     "idle": { "hook": "SessionStart / Stop 之后", "body": "main.png", "eyes": "blink", "mouth": true },
     "think": {
-      "hook": "UserPromptSubmit，以及 PostToolUse 之后等待下一步",
+      "hook": "UserPromptSubmit 之后、本轮还没调用工具；或工具结束后长时间没有新调用",
       "enter": [["main_think_mid.png", 90]],
       "body": "main_think.png",
       "exit": [["main_think_mid.png", 90]],
@@ -94,10 +97,14 @@ const M={
       }
     },
     "working": {
-      "hook": "PreToolUse",
+      "hook": "本轮第一次 PreToolUse 起，直到 Stop / StopFailure / Notification；paces 按节奏覆盖 tap 的 burst 和 pauseMs，active 为执行工具中，composing 为两次工具之间",
       "body": "main_work.png",
       "eyes": "blink", "mouth": false,
-      "tap": { "frame": "main_work_tap.png", "downMs": 90, "gapMs": [90, 210], "burst": [3, 6], "pauseMs": [400, 1100] }
+      "tap": { "frame": "main_work_tap.png", "downMs": 90, "gapMs": [90, 210], "burst": [3, 6], "pauseMs": [400, 1100] },
+      "paces": {
+        "active":    { "taps": [3, 6], "pauseMs": [400, 1100] },
+        "composing": { "taps": [1, 3], "pauseMs": [1200, 2500] }
+      }
     },
     "notice": {
       "hook": "Notification",
@@ -187,10 +194,15 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d'),L=[0,1,2,3].map(i=>$('l'+i).getContext('2d'));
 const [SW,SH]=M.stage.size,[OX,OY]=M.stage.characterOffset;
 const st={name:'idle',body:'main.png',q:[],qT:Infinity,hairI:0,hairT:0,eye:null,eyeQ:[],eyeT:0,nextBlink:0,
-  fx:[],react:[],reactQ:[],reactT:0,fxI:0,fxT:0,fxMode:null,popQ:[],nextPop:0,bob:0,bobT:0,tapT:0,tapLeft:0,doneT:Infinity};
+  fx:[],react:[],reactQ:[],reactT:0,fxI:0,fxT:0,fxMode:null,popQ:[],nextPop:0,bob:0,bobT:0,tapT:0,tapLeft:0,doneT:Infinity,pace:'active'};
 const S=()=>M.states[st.name];
 // 按钮
 for(const k of Object.keys(M.states)){const b=document.createElement('button');b.dataset.s=k;b.innerHTML=`${NAMES[k][0]}<small>${NAMES[k][1]}</small>`;b.onclick=()=>{$('auto').checked=false;go(k,performance.now())};$('states').appendChild(b)}
+const PACE_NAMES={active:['执行工具','active'],composing:['两次工具之间','composing']};
+for(const k of Object.keys(M.states.working.paces||{})){const b=document.createElement('button');b.dataset.p=k;b.innerHTML=`${(PACE_NAMES[k]||[k])[0]}<small>${k}</small>`;b.onclick=()=>{$('auto').checked=false;setPace(k)};$('paces').appendChild(b)}
+// 只换敲击节奏，不重置状态，也不播 exit/enter
+function setPace(k){st.pace=k;document.querySelectorAll('#paces button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.p===k))}
+function rhythm(s){const p=s.paces&&s.paces[st.pace];return p?{burst:p.taps,pauseMs:p.pauseMs}:{burst:s.tap.burst,pauseMs:s.tap.pauseMs}}
 function setZoom(z){cv.style.width=SW*z+'px';cv.style.height=SH*z+'px'}
 function playQ(q,t){st.q=q.map(x=>x.slice());nextQ(t)}
 function nextQ(t){const e=st.q.shift();if(!e){st.qT=Infinity;return}st.body=e[0];st.qT=e[1]?t+e[1]:Infinity}
@@ -224,15 +236,15 @@ function tick(t){
     if(!st.popQ.length&&st.fx.length&&t>st.bobT){st.bob=st.bob?0:s.fx.hold.bobPx;st.bobT=t+s.fx.hold.bobMs}
   }
   // 打字
-  if(s.tap&&!st.q.length&&st.qT===Infinity&&t>st.tapT){const p=s.tap;
-    if(st.body===p.frame){st.body=s.body;st.tapT=t+(st.tapLeft>0?p.gapMs[0]+Math.random()*(p.gapMs[1]-p.gapMs[0]):p.pauseMs[0]+Math.random()*(p.pauseMs[1]-p.pauseMs[0]))}
-    else{if(st.tapLeft<=0)st.tapLeft=p.burst[0]+Math.floor(Math.random()*(p.burst[1]-p.burst[0]+1));st.tapLeft--;st.body=p.frame;st.tapT=t+p.downMs}}
+  if(s.tap&&!st.q.length&&st.qT===Infinity&&t>st.tapT){const p=s.tap,r=rhythm(s);
+    if(st.body===p.frame){st.body=s.body;st.tapT=t+(st.tapLeft>0?p.gapMs[0]+Math.random()*(p.gapMs[1]-p.gapMs[0]):r.pauseMs[0]+Math.random()*(r.pauseMs[1]-r.pauseMs[0]))}
+    else{if(st.tapLeft<=0)st.tapLeft=r.burst[0]+Math.floor(Math.random()*(r.burst[1]-r.burst[0]+1));st.tapLeft--;st.body=p.frame;st.tapT=t+p.downMs}}
   if(st.reactQ.length&&t>=st.reactT){st.reactQ.shift();if(st.reactQ.length){st.react=st.reactQ[0].sprites;st.reactT=t+st.reactQ[0].ms}else st.react=[]}
   if(t>=st.doneT){st.doneT=Infinity;go(s.then,t)}
   auto(t);render();requestAnimationFrame(tick)}
-const PLAN=[['think',2600],['working',2000],['!toolFailure',2400],['think',2000],['notice',4800],['working',3600],['done',2600],['idle',2500],['think',2000],['error',4500],['sleep',5000],['idle',2500]];
+const PLAN=[['think',2600],['~active',0],['working',2400],['~composing',3600],['~active',1800],['~composing',0],['!toolFailure',3600],['~active',0],['notice',4800],['working',3600],['done',2600],['idle',2500],['think',2000],['error',4500],['sleep',5000],['idle',2500]];
 let planI=0,planT=0;
-function auto(t){if(!$('auto').checked||t<planT)return;const [n,ms]=PLAN[planI];planI=(planI+1)%PLAN.length;if(n[0]==='!')react(n.slice(1),t);else if(n!==st.name)go(n,t);planT=t+ms}
+function auto(t){if(!$('auto').checked||t<planT)return;const [n,ms]=PLAN[planI];planI=(planI+1)%PLAN.length;if(n[0]==='!')react(n.slice(1),t);else if(n[0]==='~')setPace(n.slice(1));else if(n!==st.name)go(n,t);planT=t+ms}
 function d(c,n,x,y){if(n&&IMG[n])c.drawImage(IMG[n],x,y)}
 function render(){
   const s=S(),h=M.hair.frames[st.hairI];
@@ -245,7 +257,7 @@ function render(){
   $('n0').textContent='后发 '+h;$('n1').textContent='主体 '+st.body;$('n2').textContent='眼睛 '+(st.eye||'（无）');
   {const all=[...st.fx,...st.react];$('n3').textContent='特效 '+(all.length?[...new Set(all.map(f=>f[0]))].join(' '):'（无）')}
 }
-function start(){setZoom(4);const t=performance.now();st.hairT=t+800;st.nextBlink=t+1500;planT=t+2500;go('sleep',t);go('idle',t);requestAnimationFrame(tick)}
+function start(){setZoom(4);const t=performance.now();st.hairT=t+800;st.nextBlink=t+1500;planT=t+2500;go('sleep',t);go('idle',t);setPace('active');requestAnimationFrame(tick)}
 $('fail').onclick=()=>react('toolFailure',performance.now());
 $('zoom').oninput=e=>setZoom(+e.target.value);
 </script></body></html>

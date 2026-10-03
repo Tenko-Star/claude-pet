@@ -137,6 +137,48 @@ public class SpritePlayerTests
     }
 
     [Fact]
+    public void Composing_pace_taps_less_often()
+    {
+        var player = CreatePlayer();
+        player.SetPace("composing");
+        player.SetState("working", Ms(0));
+
+        // Composing: pause 1200 ms, bursts of a single 90 ms press.
+        var expected = new (int At, string Body)[]
+        {
+            (0, "main_work.png"), (1199, "main_work.png"), (1200, "main_work_tap.png"),
+            (1290, "main_work.png"), (2489, "main_work.png"), (2490, "main_work_tap.png"),
+        };
+        foreach (var (at, body) in expected)
+        {
+            Assert.Equal(body, Body(player.Evaluate(Ms(at))));
+        }
+    }
+
+    [Fact]
+    public void Changing_pace_keeps_the_state_and_applies_from_the_next_pause()
+    {
+        var player = CreatePlayer();
+        player.SetPace("active");
+        player.SetState("working", Ms(0));
+        Assert.Equal("main_work_tap.png", Body(player.Evaluate(Ms(400))));
+
+        player.SetPace("composing");
+
+        // The running burst of 3 presses finishes; the following pause is the composing 1200 ms.
+        Assert.Equal("working", player.CurrentState);
+        var expected = new (int At, string Body)[]
+        {
+            (500, "main_work.png"), (580, "main_work_tap.png"), (760, "main_work_tap.png"),
+            (850, "main_work.png"), (2049, "main_work.png"), (2050, "main_work_tap.png"),
+        };
+        foreach (var (at, body) in expected)
+        {
+            Assert.Equal(body, Body(player.Evaluate(Ms(at))));
+        }
+    }
+
+    [Fact]
     public void Notice_pops_then_holds_with_a_bob_and_pops_again()
     {
         var player = CreatePlayer();

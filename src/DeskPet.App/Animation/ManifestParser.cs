@@ -164,7 +164,7 @@ public static class ManifestParser
             eyesFile,
             mouth,
             entry.TryGetProperty("fx", out var fx) ? ParseFx(Object(fx, $"{owner} fx"), $"{owner} fx") : null,
-            entry.TryGetProperty("tap", out var tap) ? ParseTap(Object(tap, $"{owner} tap"), $"{owner} tap") : null,
+            ParseTapWithPaces(entry, owner),
             duration,
             then,
             entry.TryGetProperty("hairFrameMs", out var hairMs) ? (TimeSpan?)Millis(hairMs, owner, "hairFrameMs") : null);
@@ -196,26 +196,57 @@ public static class ManifestParser
         throw new InvalidDataException($"manifest: {owner} needs 'loop' or 'pop'.");
     }
 
-    private static TapSpec ParseTap(JsonElement entry, string owner)
+    // "tap" plus the optional sibling "paces": { "<pace>": { "taps": [min, max], "pauseMs": [min, max] } }.
+    private static TapSpec? ParseTapWithPaces(JsonElement state, string owner)
     {
-        var burst = Required(entry, "burst", owner);
-        if (burst.ValueKind != JsonValueKind.Array || burst.GetArrayLength() != 2)
+        if (!state.TryGetProperty("tap", out var tapElement))
         {
-            throw new InvalidDataException($"manifest: {owner}: 'burst' must be [min, max].");
+            if (state.TryGetProperty("paces", out _))
+            {
+                throw new InvalidDataException($"manifest: {owner}: 'paces' needs 'tap'.");
+            }
+            return null;
         }
-        var burstMin = Int(burst[0], owner, "burst");
-        var burstMax = Int(burst[1], owner, "burst");
-        if (burstMin < 1 || burstMax < burstMin)
+
+        var paces = new Dictionary<string, TapPace>(StringComparer.Ordinal);
+        if (state.TryGetProperty("paces", out var pacesElement))
         {
-            throw new InvalidDataException($"manifest: {owner}: 'burst' must be positive with max not below min.");
+            foreach (var pace in Object(pacesElement, $"{owner} paces").EnumerateObject())
+            {
+                var paceOwner = $"{owner} pace '{pace.Name}'";
+                var paceEntry = Object(pace.Value, paceOwner);
+                var (min, max) = CountRange(Required(paceEntry, "taps", paceOwner), paceOwner, "taps");
+                paces[pace.Name] = new TapPace(min, max, Range(Required(paceEntry, "pauseMs", paceOwner), paceOwner, "pauseMs"));
+            }
         }
+
+        var tapOwner = $"{owner} tap";
+        var tap = Object(tapElement, tapOwner);
+        var (burstMin, burstMax) = CountRange(Required(tap, "burst", tapOwner), tapOwner, "burst");
         return new TapSpec(
-            FileName(Required(entry, "frame", owner), owner),
-            Millis(Required(entry, "downMs", owner), owner, "downMs"),
-            Range(Required(entry, "gapMs", owner), owner, "gapMs"),
+            FileName(Required(tap, "frame", tapOwner), tapOwner),
+            Millis(Required(tap, "downMs", tapOwner), tapOwner, "downMs"),
+            Range(Required(tap, "gapMs", tapOwner), tapOwner, "gapMs"),
             burstMin,
             burstMax,
-            Range(Required(entry, "pauseMs", owner), owner, "pauseMs"));
+            Range(Required(tap, "pauseMs", tapOwner), tapOwner, "pauseMs"),
+            paces);
+    }
+
+    // [min, max] with 1 <= min <= max.
+    private static (int Min, int Max) CountRange(JsonElement element, string owner, string property)
+    {
+        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() != 2)
+        {
+            throw new InvalidDataException($"manifest: {owner}: '{property}' must be [min, max].");
+        }
+        var min = Int(element[0], owner, property);
+        var max = Int(element[1], owner, property);
+        if (min < 1 || max < min)
+        {
+            throw new InvalidDataException($"manifest: {owner}: '{property}' must be positive with max not below min.");
+        }
+        return (min, max);
     }
 
     // [[file, ms], ...]

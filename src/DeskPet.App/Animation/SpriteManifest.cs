@@ -130,8 +130,19 @@ public sealed record StateSpec(
 /// <summary>
 /// Working-state key presses: bursts of <see cref="Frame"/> shown for <see cref="Down"/>,
 /// separated by <see cref="Gap"/> within a burst and <see cref="Pause"/> between bursts.
+/// <see cref="Paces"/> optionally overrides the burst size and pause per pace name.
 /// </summary>
-public sealed record TapSpec(string Frame, TimeSpan Down, TimeRange Gap, int BurstMin, int BurstMax, TimeRange Pause);
+public sealed record TapSpec(
+    string Frame,
+    TimeSpan Down,
+    TimeRange Gap,
+    int BurstMin,
+    int BurstMax,
+    TimeRange Pause,
+    IReadOnlyDictionary<string, TapPace> Paces);
+
+/// <summary>Tap rhythm for one pace: presses per burst in [<see cref="BurstMin"/>, <see cref="BurstMax"/>] and the pause between bursts.</summary>
+public sealed record TapPace(int BurstMin, int BurstMax, TimeRange Pause);
 
 /// <summary>An effect sprite; the left edge is at anchor.X + Dx and the bottom edge at anchor.Y + Dy.</summary>
 public sealed record FxSprite(string File, int Dx, int Dy);

@@ -38,6 +38,7 @@ public sealed class SpritePlayer
     private bool _tapDown;
     private int _tapsLeft;
     private TimeSpan _tapNext;
+    private string? _pace;
 
     private ReactionSpec? _reaction;
     private TimeSpan _reactionStart;
@@ -75,6 +76,9 @@ public sealed class SpritePlayer
 
     public bool IsTalking => _talkingSince is not null;
 
+    /// <summary>Pace name looked up in the current state's tap <see cref="TapSpec.Paces"/>; null uses the tap's own rhythm.</summary>
+    public string? Pace => _pace;
+
     /// <summary>
     /// Switches to <paramref name="name"/>: plays the current state's exit frames, then the new state's
     /// enter frames, then rests on its body. Effects and taps start once the body is reached.
@@ -98,6 +102,13 @@ public sealed class SpritePlayer
         _settledAt = now + _transition.Aggregate(TimeSpan.Zero, (sum, f) => sum + f.Duration);
         StartTap(_settledAt);
     }
+
+    /// <summary>
+    /// Changes the tap rhythm in place: no exit/enter frames, and a press or pause already scheduled
+    /// finishes as planned. The new rhythm applies from the next burst or pause picked.
+    /// A pace the current state does not define falls back to the tap's own rhythm.
+    /// </summary>
+    public void SetPace(string? pace) => _pace = pace;
 
     /// <summary>Plays a reaction overlay once from <paramref name="now"/>. Unknown names are logged and ignored.</summary>
     public void TriggerReaction(string name, TimeSpan now)
@@ -212,9 +223,15 @@ public sealed class SpritePlayer
         _tapsLeft = 0;
         if (_state.Tap is { } tap)
         {
-            _tapNext = from + _pickInterval(tap.Pause.Min, tap.Pause.Max);
+            var pause = Rhythm(tap).Pause;
+            _tapNext = from + _pickInterval(pause.Min, pause.Max);
         }
     }
+
+    private TapPace Rhythm(TapSpec tap) =>
+        _pace is not null && tap.Paces.TryGetValue(_pace, out var pace)
+            ? pace
+            : new TapPace(tap.BurstMin, tap.BurstMax, tap.Pause);
 
     // Same rhythm as the asset demo: a burst of presses separated by gaps, then a pause.
     private void AdvanceTap(TimeSpan now)
@@ -228,14 +245,15 @@ public sealed class SpritePlayer
             if (_tapDown)
             {
                 _tapDown = false;
-                var wait = _tapsLeft > 0 ? tap.Gap : tap.Pause;
+                var wait = _tapsLeft > 0 ? tap.Gap : Rhythm(tap).Pause;
                 _tapNext += _pickInterval(wait.Min, wait.Max);
             }
             else
             {
                 if (_tapsLeft <= 0)
                 {
-                    _tapsLeft = _pickCount(tap.BurstMin, tap.BurstMax);
+                    var rhythm = Rhythm(tap);
+                    _tapsLeft = _pickCount(rhythm.BurstMin, rhythm.BurstMax);
                 }
                 _tapsLeft--;
                 _tapDown = true;

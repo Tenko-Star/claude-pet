@@ -69,6 +69,8 @@ public class ManifestParserTests
         Assert.Equal(new TimeRange(Ms(90), Ms(210)), tap.Gap);
         Assert.Equal((3, 6), (tap.BurstMin, tap.BurstMax));
         Assert.Equal(new TimeRange(Ms(400), Ms(1100)), tap.Pause);
+        Assert.Equal(new TapPace(3, 6, new TimeRange(Ms(400), Ms(1100))), tap.Paces["active"]);
+        Assert.Equal(new TapPace(1, 3, new TimeRange(Ms(1200), Ms(2500))), tap.Paces["composing"]);
 
         var pop = Assert.IsType<PopFx>(states["notice"].Fx);
         Assert.Equal(4, pop.Pop.Count);
@@ -148,6 +150,8 @@ public class ManifestParserTests
     [InlineData("\"mouth\": true", "\"mouth\": true, \"fx\": { \"anchor\": [0, 0] }", "'loop' or 'pop'")]
     [InlineData("\"mouth\": true", "\"mouth\": true, \"fx\": { \"anchor\": [0, 0], \"loop\": [{ \"ms\": 5, \"sprites\": [[\"x.png\", 1]] }] }", "[file, dx, dy]")]
     [InlineData("\"mouth\": true", "\"mouth\": true, \"tap\": { \"frame\": \"t.png\", \"downMs\": 5, \"gapMs\": [1, 2], \"burst\": [0, 2], \"pauseMs\": [1, 2] }", "burst")]
+    [InlineData("\"mouth\": true", "\"mouth\": true, \"paces\": { \"active\": { \"taps\": [1, 2], \"pauseMs\": [1, 2] } }", "'paces' needs 'tap'")]
+    [InlineData("\"mouth\": true", "\"mouth\": true, \"tap\": { \"frame\": \"t.png\", \"downMs\": 5, \"gapMs\": [1, 2], \"burst\": [1, 2], \"pauseMs\": [1, 2] }, \"paces\": { \"active\": { \"taps\": [3, 2], \"pauseMs\": [1, 2] } }", "pace 'active'")]
     [InlineData("\"states\": { \"idle\": { \"body\": \"b.png\", \"eyes\": \"blink\", \"mouth\": true } }", "\"states\": {}", "must not be empty")]
     public void Rejects_malformed_manifest(string find, string replace, string expectedMessagePart)
     {

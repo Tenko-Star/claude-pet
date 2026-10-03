@@ -12,7 +12,8 @@ public class PetControllerTests
     private static PetController CreateController(SpriteManifest? manifest = null) =>
         new(new SpritePlayer(manifest ?? TestAssets.LoadManifest(), new RecordingLogger<SpritePlayer>(), (min, _) => min), SleepAfter);
 
-    private static StatusSnapshot Snapshot(ClaudeStatus status) => new(status, 1, DateTimeOffset.UnixEpoch);
+    private static StatusSnapshot Snapshot(ClaudeStatus status, WorkPace pace = WorkPace.Active) =>
+        new(status, 1, DateTimeOffset.UnixEpoch, pace);
 
     private static StatusEvent Event(ClaudeStatus kind) => new(kind, "s1", DateTimeOffset.UnixEpoch);
 
@@ -106,6 +107,20 @@ public class PetControllerTests
         var frame = pet.Evaluate(Ms(100));
         Assert.Equal("working", pet.Player.CurrentState);
         Assert.Contains(frame.Sprites, s => s.File == "fx_sweat.png");
+    }
+
+    [Fact]
+    public void Pace_changes_the_tap_rhythm_without_leaving_working()
+    {
+        var pet = CreateController();
+        pet.ApplySnapshot(Snapshot(ClaudeStatus.Working), Ms(0));
+        Assert.Equal("active", pet.Player.Pace);
+
+        pet.ApplySnapshot(Snapshot(ClaudeStatus.Working, WorkPace.Composing), Ms(100));
+        pet.ApplyEvent(Event(ClaudeStatus.ToolFailure), Ms(100));
+
+        Assert.Equal("working", pet.Player.CurrentState);
+        Assert.Equal("composing", pet.Player.Pace);
     }
 
     [Fact]

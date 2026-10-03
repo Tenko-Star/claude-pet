@@ -17,7 +17,7 @@
   "states": {
     "idle": { "hook": "SessionStart / Stop 之后", "body": "main.png", "eyes": "blink", "mouth": true },
     "think": {
-      "hook": "UserPromptSubmit，以及 PostToolUse 之后等待下一步",
+      "hook": "UserPromptSubmit 之后、本轮还没调用工具；或工具结束后长时间没有新调用",
       "enter": [["main_think_mid.png", 90]],
       "body": "main_think.png",
       "exit": [["main_think_mid.png", 90]],
@@ -33,10 +33,14 @@
       }
     },
     "working": {
-      "hook": "PreToolUse",
+      "hook": "本轮第一次 PreToolUse 起，直到 Stop / StopFailure / Notification；paces 按节奏覆盖 tap 的 burst 和 pauseMs，active 为执行工具中，composing 为两次工具之间",
       "body": "main_work.png",
       "eyes": "blink", "mouth": false,
-      "tap": { "frame": "main_work_tap.png", "downMs": 90, "gapMs": [90, 210], "burst": [3, 6], "pauseMs": [400, 1100] }
+      "tap": { "frame": "main_work_tap.png", "downMs": 90, "gapMs": [90, 210], "burst": [3, 6], "pauseMs": [400, 1100] },
+      "paces": {
+        "active":    { "taps": [3, 6], "pauseMs": [400, 1100] },
+        "composing": { "taps": [1, 3], "pauseMs": [1200, 2500] }
+      }
     },
     "notice": {
       "hook": "Notification",

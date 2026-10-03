@@ -11,7 +11,8 @@ namespace DeskPet.App.Animation;
 /// Snapshot statuses map to idle/think/working/notice. A Done event plays <c>done</c> until the
 /// manifest's own <c>then</c> ends it; an Error event holds <c>error</c> until the next Thinking
 /// snapshot (the next prompt); a ToolFailure event plays the <c>toolFailure</c> reaction.
-/// Resting in idle for <c>sleepAfter</c> shows <c>sleep</c>.
+/// Resting in idle for <c>sleepAfter</c> shows <c>sleep</c>. The snapshot's pace selects the tap
+/// rhythm (<c>active</c> / <c>composing</c>) without restarting the state.
 /// </remarks>
 public sealed class PetController
 {
@@ -23,6 +24,8 @@ public sealed class PetController
     public const string Error = "error";
     public const string Sleep = "sleep";
     public const string ToolFailureReaction = "toolFailure";
+    public const string ActivePace = "active";
+    public const string ComposingPace = "composing";
 
     private static readonly string[] RequiredStates = [Idle, Think, Working, Notice, Done, Error, Sleep];
 
@@ -30,6 +33,7 @@ public sealed class PetController
     private readonly TimeSpan _sleepAfter;
 
     private ClaudeStatus _status = ClaudeStatus.Idle;
+    private WorkPace _pace = WorkPace.Active;
     private bool _playingDone;
     private bool _errorHeld;
     private TimeSpan? _idleSince;
@@ -57,6 +61,7 @@ public sealed class PetController
     public void ContinueFrom(PetController previous, TimeSpan now)
     {
         _status = previous._status;
+        _pace = previous._pace;
         _errorHeld = previous._errorHeld;
         _idleSince = previous._idleSince;
         Update(now);
@@ -65,6 +70,7 @@ public sealed class PetController
     public void ApplySnapshot(StatusSnapshot snapshot, TimeSpan now)
     {
         _status = snapshot.Status;
+        _pace = snapshot.Pace;
         if (_status == ClaudeStatus.Thinking)
         {
             _errorHeld = false;
@@ -120,7 +126,11 @@ public sealed class PetController
         return frame;
     }
 
-    private void Update(TimeSpan now) => _player.SetState(Resolve(now), now);
+    private void Update(TimeSpan now)
+    {
+        _player.SetPace(_pace == WorkPace.Composing ? ComposingPace : ActivePace);
+        _player.SetState(Resolve(now), now);
+    }
 
     private string Resolve(TimeSpan now)
     {
