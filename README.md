@@ -135,7 +135,24 @@ claude plugin install deskpet-hooks@deskpet-local
 dotnet run --project src/DeskPet.App
 ```
 
-（桌宠接入 SignalR 状态流的部分还在开发中。）
+桌宠启动后会自动连接服务的 SignalR 状态流；服务先启动还是后启动都可以，断线会自动重连，断开期间显示空闲。
+
+| 状态来源 | 动画 |
+| --- | --- |
+| 快照 Idle / Thinking / Working / Waiting | idle / think / working / notice |
+| `Done` 事件 | done，播完回到当前快照对应的状态 |
+| `Error` 事件 | error，一直停留到下一次提交提示词 |
+| `ToolFailure` 事件 | 在当前画面上闪一下汗珠，不切换状态 |
+| 空闲超过 5 分钟 | sleep |
+
+配置在 `src/DeskPet.App/appsettings.json` 的 `DeskPet` 节：
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `Scale` | `3` | 默认放大倍数（右键菜单改过之后以保存的为准） |
+| `AssetRoot` | 空（向上查找 `assets/runtime`） | 素材目录 |
+| `SleepAfter` | `00:05:00` | 空闲多久进入睡觉 |
+| `HubUrl` | `http://127.0.0.1:47821/hubs/status` | 服务的状态流地址，端口要和服务一致 |
 
 ## 开发
 

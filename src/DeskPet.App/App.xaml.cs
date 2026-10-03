@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using DeskPet.App.Animation;
 using DeskPet.App.Rendering;
+using DeskPet.App.Status;
 using DeskPet.App.Windowing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -41,6 +42,7 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new WindowStateStore(sp.GetRequiredService<ILogger<WindowStateStore>>()));
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddSingleton<TrayIcon>();
+        builder.Services.AddHostedService<StatusClientService>();
 
         _host = builder.Build();
         var logger = _host.Services.GetRequiredService<ILogger<App>>();
