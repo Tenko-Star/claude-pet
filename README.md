@@ -178,11 +178,13 @@ dotnet run --project src/DeskPet.App
 
 | 状态来源 | 动画 |
 | --- | --- |
-| 快照 Idle / Thinking / Working / Waiting | idle / think / working / notice |
-| `Done` 事件 | done，播完回到当前快照对应的状态 |
+| 快照 Idle / Thinking / Working / Waiting | idle / think / working / notice；Working 按快照的 `Pace` 选 manifest 里的敲击节奏 |
+| `Done` 事件 | done，按 manifest 播 15 秒；前 2 秒锁定，之后遇到思考、工作或等待才提前结束，空闲不会打断 |
 | `Error` 事件 | error，一直停留到下一次提交提示词 |
-| `ToolFailure` 事件 | 在当前画面上闪一下汗珠，不切换状态 |
+| `ToolFailure` 事件 | 只在 think / working 时闪一下汗珠，不切换状态 |
 | 空闲超过 5 分钟 | sleep |
+
+切换节奏：每个状态至少显示 500 毫秒，之后还要等当前这一轮动画走完（进入帧、一串敲击、弹出动画或一圈循环特效）才切。等待期间收到的状态只保留最新的一个，快速变化时会直接跳到最终状态。
 
 配置在 `src/DeskPet.App/appsettings.json` 的 `DeskPet` 节：
 

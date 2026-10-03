@@ -10,8 +10,15 @@ namespace DeskPet.App.Animation;
 /// <remarks>
 /// Snapshot statuses map to idle/think/working/notice. A Done event plays <c>done</c> until the
 /// manifest's own <c>then</c> ends it; an Error event holds <c>error</c> until the next Thinking
-/// snapshot (the next prompt); a ToolFailure event plays the <c>toolFailure</c> reaction.
-/// Resting in idle for <c>sleepAfter</c> shows <c>sleep</c>. The snapshot's pace selects the tap
+/// snapshot (the next prompt); a ToolFailure event plays the <c>toolFailure</c> reaction, but only
+/// while think or working is shown. Resting in idle for <c>sleepAfter</c> shows <c>sleep</c>.
+/// <para>
+/// Every state is shown for at least <see cref="MinStateDwell"/>, and done for at least
+/// <see cref="DoneLock"/>; after that the switch still waits until the shown state's animation
+/// cycle completes (<see cref="SpritePlayer.CycleComplete"/>). Input arriving meanwhile only
+/// updates the target, so a quick run of statuses shows just the last one. After the lock, done gives way to think, working or notice;
+/// idle never cuts it short. Another Done event restarts done's lock and its duration.
+/// </para> The snapshot's pace selects the tap
 /// rhythm (<c>active</c> / <c>composing</c>) without restarting the state.
 /// </remarks>
 public sealed class PetController
@@ -27,6 +34,12 @@ public sealed class PetController
     public const string ActivePace = "active";
     public const string ComposingPace = "composing";
 
+    /// <summary>Shortest time any state stays on screen before switching to another.</summary>
+    public static readonly TimeSpan MinStateDwell = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Shortest time done stays on screen; only then can a new status replace it.</summary>
+    public static readonly TimeSpan DoneLock = TimeSpan.FromSeconds(2);
+
     private static readonly string[] RequiredStates = [Idle, Think, Working, Notice, Done, Error, Sleep];
 
     private readonly SpritePlayer _player;
@@ -37,6 +50,14 @@ public sealed class PetController
     private bool _playingDone;
     private bool _errorHeld;
     private TimeSpan? _idleSince;
+    // When the shown state was entered; null until this controller has switched the player.
+    private TimeSpan? _shownSince;
+    // When done was shown or last restarted; null while done is not on screen.
+    private TimeSpan? _doneSince;
+    // When the target first differed from the shown state; null while they match.
+    private TimeSpan? _pendingSince;
+    // A held switch should be checked again at this time.
+    private TimeSpan? _switchAt;
 
     public PetController(SpritePlayer player, TimeSpan sleepAfter)
     {
@@ -85,13 +106,22 @@ public sealed class PetController
             case ClaudeStatus.Done:
                 _errorHeld = false;
                 _playingDone = true;
+                if (_player.CurrentState == Done)
+                {
+                    _player.RestartDuration(now);
+                    _shownSince = now;
+                    _doneSince = now;
+                }
                 break;
             case ClaudeStatus.Error:
                 _playingDone = false;
                 _errorHeld = true;
                 break;
             case ClaudeStatus.ToolFailure:
-                _player.TriggerReaction(ToolFailureReaction, now);
+                if (_player.CurrentState is Think or Working)
+                {
+                    _player.TriggerReaction(ToolFailureReaction, now);
+                }
                 return;
             default:
                 return;
@@ -110,34 +140,84 @@ public sealed class PetController
     {
         Update(now);
         var frame = _player.Evaluate(now);
-        if (_playingDone && _player.CurrentState != Done)
+        if (_doneSince is not null && _player.CurrentState != Done)
         {
             // The manifest's durationMs/then ended done; continue with the current status instead.
             _playingDone = false;
+            _doneSince = null;
+            _pendingSince = null;
+            _shownSince = now;
             Update(now);
             frame = _player.Evaluate(now);
         }
 
+        if (_switchAt is { } switchAt && switchAt > now)
+        {
+            frame = WakeBy(frame, switchAt);
+        }
+        if (_playingDone && _doneSince is { } doneSince && doneSince + DoneLock > now)
+        {
+            frame = WakeBy(frame, doneSince + DoneLock);
+        }
         if (_idleSince is { } since && _player.CurrentState == Idle)
         {
-            var sleepAt = since + _sleepAfter;
-            return frame.NextChangeAt > sleepAt ? frame with { NextChangeAt = sleepAt } : frame;
+            frame = WakeBy(frame, since + _sleepAfter);
         }
         return frame;
     }
 
+    private static FrameState WakeBy(FrameState frame, TimeSpan at) =>
+        frame.NextChangeAt > at ? frame with { NextChangeAt = at } : frame;
+
     private void Update(TimeSpan now)
     {
         _player.SetPace(_pace == WorkPace.Composing ? ComposingPace : ActivePace);
-        _player.SetState(Resolve(now), now);
+        _switchAt = null;
+
+        var target = Resolve(now);
+        var current = _player.CurrentState;
+        if (target == current)
+        {
+            _pendingSince = null;
+            return;
+        }
+        _pendingSince ??= now;
+        if (_shownSince is { } shownSince)
+        {
+            var minimum = shownSince + (current == Done ? DoneLock : MinStateDwell);
+            var due = minimum > _pendingSince.Value ? minimum : _pendingSince.Value;
+            if (now < due)
+            {
+                _switchAt = due;
+                return;
+            }
+            if (!_player.CycleComplete(due, now, out var wakeAt))
+            {
+                _switchAt = wakeAt;
+                return;
+            }
+        }
+
+        _player.SetState(target, now);
+        if (_player.CurrentState != current)
+        {
+            _pendingSince = null;
+            _shownSince = now;
+            _doneSince = _player.CurrentState == Done ? now : null;
+        }
     }
 
     private string Resolve(TimeSpan now)
     {
         if (_playingDone)
         {
-            _idleSince = null;
-            return Done;
+            var locked = _doneSince is not { } doneSince || now - doneSince < DoneLock;
+            if (locked || _status is not (ClaudeStatus.Thinking or ClaudeStatus.Working or ClaudeStatus.Waiting))
+            {
+                _idleSince = null;
+                return Done;
+            }
+            _playingDone = false;
         }
         if (_errorHeld)
         {

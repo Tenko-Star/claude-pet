@@ -203,10 +203,42 @@ public class SpritePlayerTests
         Assert.Equal("main_done.png", Body(frame));
         Assert.DoesNotContain("eye_closed.png", Files(frame));
         Assert.Contains("fx_star_big.png", Files(frame));
-        Assert.Equal(Ms(2200), player.Evaluate(Ms(2100)).NextChangeAt);
+        Assert.True(player.Evaluate(Ms(14_999)).NextChangeAt <= Ms(15_000));
 
         Assert.Equal("done", player.CurrentState);
-        Assert.Equal("main.png", Body(player.Evaluate(Ms(2200))));
+        Assert.Equal("main.png", Body(player.Evaluate(Ms(15_000))));
+        Assert.Equal("idle", player.CurrentState);
+    }
+
+    [Fact]
+    public void CycleComplete_waits_for_enter_frames_pops_and_loop_wraps()
+    {
+        var player = CreatePlayer();
+
+        // notice: 90 ms enter frame, then a 440 ms pop before the hold.
+        player.SetState("notice", Ms(0));
+        Assert.False(player.CycleComplete(Ms(0), Ms(50), out _));
+        Assert.False(player.CycleComplete(Ms(0), Ms(529), out _));
+        Assert.True(player.CycleComplete(Ms(0), Ms(530), out _));
+
+        // done: notice's 90 ms exit frame, then a 440 ms star loop from 1090 ms.
+        player.SetState("done", Ms(1000));
+        Assert.False(player.CycleComplete(Ms(1500), Ms(1500), out var wakeAt));
+        Assert.Equal(Ms(1530), wakeAt);
+        Assert.True(player.CycleComplete(Ms(1500), Ms(1530), out _));
+    }
+
+    [Fact]
+    public void RestartDuration_counts_the_duration_again_from_now()
+    {
+        var player = CreatePlayer();
+        player.SetState("done", Ms(0));
+
+        player.RestartDuration(Ms(10_000));
+
+        player.Evaluate(Ms(24_999));
+        Assert.Equal("done", player.CurrentState);
+        player.Evaluate(Ms(25_000));
         Assert.Equal("idle", player.CurrentState);
     }
 

@@ -31,6 +31,8 @@ public sealed class SpritePlayer
     // Exit frames of the previous state followed by enter frames of the current one.
     private IReadOnlyList<BodyFrame> _transition = [];
     private TimeSpan _settledAt;
+    // The state's durationMs counts from here; normally the state start.
+    private TimeSpan _durationFrom;
 
     private int _hairIndex;
     private TimeSpan _hairNext;
@@ -66,6 +68,7 @@ public sealed class SpritePlayer
             : throw new InvalidDataException($"manifest: initial state '{initialState}' is missing.");
         _stateStart = start;
         _settledAt = start;
+        _durationFrom = start;
         _hairNext = start + HairFrameDuration;
         StartTap(start);
     }
@@ -99,9 +102,16 @@ public sealed class SpritePlayer
         _transition = [.. _state.Exit, .. next.Enter];
         _state = next;
         _stateStart = now;
+        _durationFrom = now;
         _settledAt = now + _transition.Aggregate(TimeSpan.Zero, (sum, f) => sum + f.Duration);
         StartTap(_settledAt);
     }
+
+    /// <summary>
+    /// Restarts the current state's <c>durationMs</c> countdown from <paramref name="now"/>
+    /// without replaying its frames or effects.
+    /// </summary>
+    public void RestartDuration(TimeSpan now) => _durationFrom = now;
 
     /// <summary>
     /// Changes the tap rhythm in place: no exit/enter frames, and a press or pause already scheduled
@@ -109,6 +119,57 @@ public sealed class SpritePlayer
     /// A pace the current state does not define falls back to the tap's own rhythm.
     /// </summary>
     public void SetPace(string? pace) => _pace = pace;
+
+    /// <summary>
+    /// Whether the current state's own animation has reached a point where it can be left at
+    /// <paramref name="now"/>: its enter frames are done, no tap burst is under way, a pop effect is
+    /// not popping, and a loop effect has wrapped at or after <paramref name="due"/> (or not started yet).
+    /// Hair and blinking run across states and are not waited for. When only the loop wrap is missing,
+    /// <paramref name="wakeAt"/> is the time it happens; other waits end on a frame change.
+    /// </summary>
+    public bool CycleComplete(TimeSpan due, TimeSpan now, out TimeSpan? wakeAt)
+    {
+        wakeAt = null;
+        if (now < _settledAt)
+        {
+            return false;
+        }
+
+        AdvanceTap(now);
+        if (_state.Tap is not null && (_tapDown || _tapsLeft > 0))
+        {
+            return false;
+        }
+
+        switch (_state.Fx)
+        {
+            case LoopFx loop:
+            {
+                var cycle = FxFrame.TotalDuration(loop.Frames);
+                var from = due > _settledAt ? due - _settledAt : TimeSpan.Zero;
+                var wraps = (from.Ticks + cycle.Ticks - 1) / cycle.Ticks;
+                var wrapAt = _settledAt + TimeSpan.FromTicks(wraps * cycle.Ticks);
+                if (now < wrapAt)
+                {
+                    wakeAt = wrapAt;
+                    return false;
+                }
+                break;
+            }
+
+            case PopFx pop:
+            {
+                var popDuration = FxFrame.TotalDuration(pop.Pop);
+                var cycle = popDuration + pop.RepeatInterval;
+                if ((now - _settledAt).Ticks % cycle.Ticks < popDuration.Ticks)
+                {
+                    return false;
+                }
+                break;
+            }
+        }
+        return true;
+    }
 
     /// <summary>Plays a reaction overlay once from <paramref name="now"/>. Unknown names are logged and ignored.</summary>
     public void TriggerReaction(string name, TimeSpan now)
@@ -142,7 +203,7 @@ public sealed class SpritePlayer
         var next = _hairNext;
         if (_state.Duration is { } duration)
         {
-            next = Min(next, _stateStart + duration);
+            next = Min(next, _durationFrom + duration);
         }
 
         var offset = _manifest.CharacterOffset;
@@ -200,11 +261,11 @@ public sealed class SpritePlayer
         // Bounded so a manifest cycle of timed states cannot spin forever.
         for (var i = 0; i < _manifest.States.Count; i++)
         {
-            if (_state.Duration is not { } duration || _state.Then is not { } then || now < _stateStart + duration)
+            if (_state.Duration is not { } duration || _state.Then is not { } then || now < _durationFrom + duration)
             {
                 return;
             }
-            SetState(then, _stateStart + duration);
+            SetState(then, _durationFrom + duration);
         }
     }
 
