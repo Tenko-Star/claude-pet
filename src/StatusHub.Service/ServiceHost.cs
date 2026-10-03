@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Options;
 using StatusHub.Contracts;
 using StatusHub.Service.HookIngest;
@@ -11,11 +12,22 @@ namespace StatusHub.Service;
 
 public static class ServiceHost
 {
+    /// <summary>Windows Service name; must match scripts/install-service.ps1.</summary>
+    public const string ServiceName = "ClaudePetStatusHub";
+
     /// <summary>Builds the service host. Exposed so tests can start it with overridden configuration.</summary>
     public static WebApplication Build(string[] args)
     {
         // Slim builder: generic host plus Kestrel and routing, without the MVC/static-file/HTTPS defaults.
-        var builder = WebApplication.CreateSlimBuilder(args);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+        {
+            Args = args,
+            // The SCM starts services in System32; resolve appsettings.json next to the executable instead.
+            ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+        });
+
+        // Integrates with the Service Control Manager when started as a Windows Service; no-op otherwise.
+        builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
 
         builder.Services.AddOptions<HookIngestOptions>()
             .Bind(builder.Configuration.GetSection(HookIngestOptions.SectionName))

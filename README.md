@@ -1,0 +1,156 @@
+# claude-pet
+
+Claude Code 的桌面状态伙伴。Claude Code 的 hook 把会话活动上报给本机的后台服务，服务把这些事件归约成一个状态，再推送给桌面上的像素小人。之后计划接入一个蓝牙"红绿灯"硬件，它会消费同一个状态流。
+
+全部是 Windows 上的原生 C#（.NET 10），不用 Docker。
+
+## 工作方式
+
+```
+Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST──▶ StatusHub.Service ──SignalR──▶ DeskPet.App
+                                                     127.0.0.1:47821/hooks/<事件>    /hubs/status
+```
+
+1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Notification`、`Stop`、`StopFailure` 这 8 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
+2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。多个会话同时活跃时按优先级取一个：`Waiting > Working > Thinking > Idle`。
+3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
+   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`），新客户端连上立刻收到一份，之后只在变化时推送。
+   - `Event`：一次性事件 `Done`（任务完成）和 `Error`（出错），不进入快照。
+
+事件到状态的映射：
+
+| Hook 事件 | 会话状态 |
+| --- | --- |
+| `SessionStart` | Idle |
+| `UserPromptSubmit`、`PostToolUse` | Thinking |
+| `PreToolUse` | Working |
+| `Notification` | Waiting |
+| `Stop` | Idle，并广播 `Done` 事件 |
+| `StopFailure` | Idle，并广播 `Error` 事件 |
+| `SessionEnd` | 移除该会话 |
+
+## 目录结构
+
+```
+assets/                    像素素材（只读输入，manifest.json 是动画参数的唯一来源）
+plugin/                    Claude Code 插件，注册 hook（说明见 plugin/README.md）
+scripts/                   Windows 服务的安装 / 卸载脚本
+src/
+  StatusHub.Contracts/     共享 DTO：状态枚举、快照、事件、Hub 路径与方法名
+  StatusHub.Service/       后台服务：接收 hook、归约状态、SignalR 广播
+  DeskPet.App/             WPF 桌宠：透明置顶窗口，渲染像素小人
+tests/                     与 src/ 对应的测试项目
+```
+
+## 环境要求
+
+- Windows 10/11
+- .NET 10 SDK（安装脚本用它发布服务；运行服务需要 .NET 10 运行时和 ASP.NET Core 运行时，装了 SDK 就都有）
+- Claude Code，并且运行环境里有 `sh` 和 `curl`（原生 Windows 用 Git Bash 即可；WSL 发行版一般自带）
+
+## 使用
+
+### 1. 安装后台服务
+
+用**管理员身份**打开 PowerShell，在仓库根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
+```
+
+脚本会：
+
+1. 如果服务已存在，先停止并删除（所以重复执行就是"更新"）；
+2. `dotnet publish` 到 `C:\Program Files\ClaudePet\StatusHub`；
+3. 注册名为 `ClaudePetStatusHub` 的服务，开机自动启动，崩溃后 5 秒自动重启；
+4. 启动服务。
+
+可选参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-InstallDir` | `C:\Program Files\ClaudePet\StatusHub` | 发布目录 |
+| `-DataDirectory` | `C:\ProgramData\ClaudePet\hooks` | hook 日志目录 |
+| `-Port` | `47821` | 监听端口（只绑定 127.0.0.1） |
+
+例如：`powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1 -Port 48000`。改了端口的话，插件也要改成同一个端口（见下文）。
+
+服务以 LocalSystem 身份运行，所以日志默认放在 `C:\ProgramData` 下，而不是你用户目录的 `%LOCALAPPDATA%`。
+
+常用命令：
+
+```powershell
+Get-Service ClaudePetStatusHub          # 查看状态
+Restart-Service ClaudePetStatusHub      # 重启（需管理员）
+Get-Content "$env:ProgramData\ClaudePet\hooks\hook-events.jsonl" -Wait -Tail 20   # 实时看收到的 hook
+```
+
+服务的警告和错误写在 Windows 事件查看器的"Windows 日志 → 应用程序"里，来源为 `StatusHub.Service`。
+
+改了代码后，重新执行一次安装脚本即可更新。
+
+### 2. 卸载服务
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-service.ps1              # 只删除服务注册
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-service.ps1 -RemoveFiles # 同时删除发布目录
+```
+
+hook 日志（`C:\ProgramData\ClaudePet\hooks`）不会被删除，需要的话手动删。
+
+### 3. 安装 Claude Code 插件
+
+在仓库根目录执行一次，之后所有 Claude Code 会话都会自动加载：
+
+```sh
+claude plugin marketplace add ./plugin
+claude plugin install deskpet-hooks@deskpet-local
+```
+
+- 确认已加载：`claude plugin list`
+- 只想在单次会话里试用：`claude --plugin-dir ./plugin`
+- 卸载：`claude plugin uninstall deskpet-hooks@deskpet-local`，再 `claude plugin marketplace remove deskpet-local`
+- 端口不是 47821 时：在 Claude Code 里打开 `/config`，把插件的 `port` 选项改成同一个值
+
+**Claude Code 跑在 WSL 里时**：路径换成 `/mnt/e/Code/claude-pet/plugin` 这样的形式，并在 `%UserProfile%\.wslconfig` 的 `[wsl2]` 下设置 `networkingMode=mirrored`，然后 `wsl --shutdown` 重启 WSL。这样 WSL 里的 `127.0.0.1` 才能访问到 Windows 上的服务。
+
+更多细节和排错见 [plugin/README.md](plugin/README.md)。
+
+### 4. 验证
+
+1. 在 Claude Code 所在的环境里执行：
+
+   ```sh
+   curl -i -X POST http://127.0.0.1:47821/hooks/test -d '{}'
+   ```
+
+   返回 `HTTP/1.1 204 No Content` 说明服务可达。
+
+2. 在 Claude Code 里发一条消息，让它用一次工具，然后看 `hook-events.jsonl` 是否出现新行。
+
+### 5. 运行桌宠
+
+```sh
+dotnet run --project src/DeskPet.App
+```
+
+（桌宠接入 SignalR 状态流的部分还在开发中。）
+
+## 开发
+
+```sh
+dotnet build
+dotnet test
+dotnet run --project src/StatusHub.Service    # 前台运行服务，日志直接输出到控制台
+```
+
+前台运行时用的是 `Development` 环境，hook 日志默认写到 `%LOCALAPPDATA%\ClaudePet\hooks`。如果已经装了 Windows 服务，前台运行前先停掉服务，否则端口会冲突：`Stop-Service ClaudePetStatusHub`。
+
+配置在 `src/StatusHub.Service/appsettings.json`：
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HookIngest:Port` | `47821` | 监听端口 |
+| `HookIngest:DataDirectory` | 空（`%LOCALAPPDATA%\ClaudePet\hooks`） | hook 日志目录 |
+| `Status:SessionTimeout` | `00:30:00` | 会话多久没有事件就视为过期 |
+| `Status:ExpiryScanInterval` | `00:00:30` | 检查过期会话的间隔 |
