@@ -9,6 +9,8 @@ namespace StatusHub.Service.Status;
 /// Thinking only covers "prompt received, no tool called yet". Once a tool runs, the turn stays Working until
 /// Stop, StopFailure or Notification: Claude Code fires no hook while the model writes the next tool call, so the
 /// gap between tools is shown as Working with the <see cref="WorkPace.Composing"/> pace.
+/// SubagentStop only counts inside a turn (Thinking or Working): Claude Code also runs background agents after Stop.
+/// Notifications of type <c>idle_prompt</c> and <c>auth_success</c> need no action and leave the status unchanged.
 /// </remarks>
 public sealed class StatusReducer
 {
@@ -34,7 +36,14 @@ public sealed class StatusReducer
             case "PreToolUse":
                 break;
             case "PostToolUse":
+                pace = WorkPace.Composing;
+                break;
             case "SubagentStop":
+                if (!_sessions.TryGetValue(e.SessionId, out var session)
+                    || session.Status is not (ClaudeStatus.Thinking or ClaudeStatus.Working))
+                {
+                    return null;
+                }
                 pace = WorkPace.Composing;
                 break;
             case "PostToolUseFailure":
@@ -43,6 +52,10 @@ public sealed class StatusReducer
                 oneShot = new StatusEvent(ClaudeStatus.ToolFailure, e.SessionId, e.ReceivedAt);
                 break;
             case "Notification":
+                if (e.NotificationType is "idle_prompt" or "auth_success")
+                {
+                    return null;
+                }
                 status = ClaudeStatus.Waiting;
                 break;
             case "Stop":
