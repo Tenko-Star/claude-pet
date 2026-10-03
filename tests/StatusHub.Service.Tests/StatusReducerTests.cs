@@ -96,10 +96,41 @@ public sealed class StatusReducerTests
     public void Apply_ToolEvents_SetPace(string eventName, WorkPace expected)
     {
         var reducer = new StatusReducer();
+        reducer.Apply(Hook("UserPromptSubmit"));
 
-        reducer.Apply(Hook(eventName));
+        reducer.Apply(Hook(eventName, seconds: 1));
 
         Assert.Equal(expected, reducer.AggregatePace());
+    }
+
+    [Theory]
+    [InlineData("Stop", ClaudeStatus.Idle)]
+    [InlineData("StopFailure", ClaudeStatus.Idle)]
+    [InlineData("Notification", ClaudeStatus.Waiting)]
+    public void Apply_SubagentStopOutsideATurn_ChangesNothing(string last, ClaudeStatus expected)
+    {
+        var reducer = new StatusReducer();
+        reducer.Apply(Hook("PreToolUse"));
+        reducer.Apply(Hook(last, seconds: 1));
+
+        Assert.Null(reducer.Apply(Hook("SubagentStop", seconds: 2)));
+        Assert.Null(reducer.Apply(Hook("SubagentStop", "unknown", seconds: 2)));
+
+        Assert.Equal(expected, reducer.Aggregate());
+        Assert.Equal(1, reducer.SessionCount);
+    }
+
+    [Theory]
+    [InlineData("idle_prompt")]
+    [InlineData("auth_success")]
+    public void Apply_NotificationNeedingNoAction_ChangesNothing(string notificationType)
+    {
+        var reducer = new StatusReducer();
+        reducer.Apply(Hook("Stop"));
+
+        reducer.Apply(new HookEvent("Notification", "s1", T0.AddSeconds(60), notificationType));
+
+        Assert.Equal(ClaudeStatus.Idle, reducer.Aggregate());
     }
 
     [Fact]
