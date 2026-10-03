@@ -1,0 +1,68 @@
+# Builds the self-contained installer with scripts/build-installer.ps1.
+# A pushed tag v<version> publishes a GitHub Release with the installer attached;
+# a manual run only uploads the installer as a workflow artifact.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Installer version (manual runs create no Release)
+        required: true
+        default: 0.1.1
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Resolve version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { $env:INPUT_VERSION }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version '$version'." }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Test
+        run: dotnet test ClaudePet.slnx --configuration Release
+
+      - name: Install Inno Setup
+        run: |
+          $innoDir = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6'
+          if (-not (Test-Path (Join-Path $innoDir 'ISCC.exe'))) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed with exit code $LASTEXITCODE." }
+          }
+          $innoDir >> $env:GITHUB_PATH
+
+      - name: Build installer
+        run: ./scripts/build-installer.ps1 -Version $env:VERSION
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudePet-Setup-${{ env.VERSION }}
+          path: artifacts/installer/ClaudePet-Setup-${{ env.VERSION }}.exe
+
+      - name: Create release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME "artifacts/installer/ClaudePet-Setup-$env:VERSION.exe" --title $env:GITHUB_REF_NAME --generate-notes --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE." }
