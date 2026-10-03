@@ -43,6 +43,7 @@ public static class ServiceHost
             .Bind(builder.Configuration.GetSection(StatusOptions.SectionName))
             .Validate(o => o.SessionTimeout > TimeSpan.Zero, "Status:SessionTimeout must be positive.")
             .Validate(o => o.ExpiryScanInterval > TimeSpan.Zero, "Status:ExpiryScanInterval must be positive.")
+            .Validate(o => o.ThinkFallback > TimeSpan.Zero, "Status:ThinkFallback must be positive.")
             .ValidateOnStart();
 
         builder.Services.AddSingleton<HookEventLog>();

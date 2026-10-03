@@ -17,22 +17,27 @@ public sealed class StatusReducerService(
     TimeProvider time,
     ILogger<StatusReducerService> logger) : BackgroundService
 {
+    /// <summary>How often Composing sessions are checked against <see cref="StatusOptions.ThinkFallback"/>.</summary>
+    public static readonly TimeSpan FallbackCheckInterval = TimeSpan.FromSeconds(1);
+
     private readonly StatusReducer _reducer = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = options.Value;
         using var timer = new PeriodicTimer(settings.ExpiryScanInterval, time);
+        using var fallbackTimer = new PeriodicTimer(FallbackCheckInterval, time);
 
         // Keep one pending wait per source and only replace the one that completed.
         var readTask = reader.WaitToReadAsync(stoppingToken).AsTask();
         var tickTask = timer.WaitForNextTickAsync(stoppingToken).AsTask();
+        var fallbackTask = fallbackTimer.WaitForNextTickAsync(stoppingToken).AsTask();
 
         try
         {
             while (true)
             {
-                var completed = await Task.WhenAny(readTask, tickTask);
+                var completed = await Task.WhenAny(readTask, tickTask, fallbackTask);
 
                 if (completed == readTask)
                 {
@@ -61,6 +66,20 @@ public sealed class StatusReducerService(
 
                     readTask = reader.WaitToReadAsync(stoppingToken).AsTask();
                 }
+                else if (completed == fallbackTask)
+                {
+                    if (!await fallbackTask)
+                    {
+                        return; // Timer disposed.
+                    }
+
+                    if (_reducer.FallBackToThinking(time.GetUtcNow(), settings.ThinkFallback))
+                    {
+                        await PublishIfChangedAsync(stoppingToken);
+                    }
+
+                    fallbackTask = fallbackTimer.WaitForNextTickAsync(stoppingToken).AsTask();
+                }
                 else
                 {
                     if (!await tickTask)
@@ -86,15 +105,16 @@ public sealed class StatusReducerService(
     private async Task PublishIfChangedAsync(CancellationToken cancellationToken)
     {
         var status = _reducer.Aggregate();
+        var pace = status == ClaudeStatus.Working ? _reducer.AggregatePace() : WorkPace.Active;
         var sessions = _reducer.SessionCount;
         var current = store.Current;
-        if (current.Status == status && current.ActiveSessions == sessions)
+        if (current.Status == status && current.Pace == pace && current.ActiveSessions == sessions)
         {
             return;
         }
 
         // Store first, so a client connecting now gets the new value even if it misses the broadcast.
-        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow());
+        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow(), pace);
         store.Current = snapshot;
         await BroadcastAsync(StatusHubProtocol.SnapshotMethod, snapshot, cancellationToken);
     }

@@ -69,6 +69,7 @@ public sealed class StatusHubTests : IAsyncLifetime
         await PostAsync("PreToolUse", """{"session_id":"s1","tool_name":"Bash"}""");
         var working = await NextAsync(_snapshots);
         Assert.Equal(ClaudeStatus.Working, working.Status);
+        Assert.Equal(WorkPace.Active, working.Pace);
         Assert.Equal(1, working.ActiveSessions);
 
         await PostAsync("Stop", """{"session_id":"s1"}""");

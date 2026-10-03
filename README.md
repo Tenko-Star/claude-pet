@@ -11,10 +11,10 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
                                                      127.0.0.1:47821/hooks/<事件>    /hubs/status
 ```
 
-1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Notification`、`Stop`、`StopFailure` 这 9 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
+1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SubagentStop`、`Notification`、`Stop`、`StopFailure` 这 10 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
 2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。多个会话同时活跃时按优先级取一个：`Waiting > Working > Thinking > Idle`。
 3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
-   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`），新客户端连上立刻收到一份，之后只在变化时推送。
+   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。多个会话同时 Working 时，只要有一个是 `Active` 就取 `Active`。
    - `Event`：一次性事件 `Done`（任务完成）、`Error`（出错）和 `ToolFailure`（工具调用失败），不进入快照。
 
 事件到状态的映射：
@@ -22,13 +22,16 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 | Hook 事件 | 会话状态 |
 | --- | --- |
 | `SessionStart` | Idle |
-| `UserPromptSubmit`、`PostToolUse` | Thinking |
-| `PreToolUse` | Working |
-| `PostToolUseFailure` | Thinking，并广播 `ToolFailure` 事件 |
+| `UserPromptSubmit` | Thinking（本轮还没调用过工具） |
+| `PreToolUse` | Working，节奏 `Active` |
+| `PostToolUse`、`SubagentStop` | Working，节奏 `Composing` |
+| `PostToolUseFailure` | Working，节奏 `Composing`，并广播 `ToolFailure` 事件 |
 | `Notification` | Waiting |
 | `Stop` | Idle，并广播 `Done` 事件 |
 | `StopFailure` | Idle，并广播 `Error` 事件 |
 | `SessionEnd` | 移除该会话 |
+
+Claude Code 在模型生成下一次工具调用参数时没有任何 hook，真正执行工具通常只有几毫秒，所以一轮里第一次调用工具之后，会一直保持 Working，直到 `Stop`、`StopFailure` 或 `Notification`。工具结束后超过 `Status:ThinkFallback`（默认 45 秒）还没有新的 `PreToolUse`，会退回 Thinking，服务每秒检查一次。
 
 ## 目录结构
 
@@ -232,3 +235,4 @@ dotnet run --project src/StatusHub.Service    # 前台运行服务，日志直�
 | `HookIngest:DataDirectory` | 空（`%LOCALAPPDATA%\ClaudePet\hooks`） | hook 日志目录 |
 | `Status:SessionTimeout` | `00:30:00` | 会话多久没有事件就视为过期 |
 | `Status:ExpiryScanInterval` | `00:00:30` | 检查过期会话的间隔 |
+| `Status:ThinkFallback` | `00:00:45` | 工具结束后多久没有新的工具调用就从 Working 退回 Thinking |

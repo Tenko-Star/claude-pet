@@ -9,4 +9,7 @@ public sealed class StatusOptions
 
     /// <summary>How often stale sessions are checked for.</summary>
     public TimeSpan ExpiryScanInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>A Working session with no new tool call for this long after its last tool ended shows Thinking again.</summary>
+    public TimeSpan ThinkFallback { get; set; } = TimeSpan.FromSeconds(45);
 }

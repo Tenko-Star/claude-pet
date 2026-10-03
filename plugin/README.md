@@ -2,7 +2,7 @@
 
 Claude Code plugin (`deskpet-hooks`) that forwards hook events to `StatusHub.Service`.
 
-It registers command hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `Stop` and `StopFailure`. Each hook runs `scripts/forward-hook.sh <EventName>`, which POSTs the hook JSON from stdin to `http://127.0.0.1:<port>/hooks/<EventName>`.
+It registers command hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStop`, `Notification`, `Stop` and `StopFailure`. Each hook runs `scripts/forward-hook.sh <EventName>`, which POSTs the hook JSON from stdin to `http://127.0.0.1:<port>/hooks/<EventName>`.
 
 The script never gets in Claude Code's way: curl has a 0.2 s connect timeout and a 1 s total limit, all output is discarded, and the script always exits 0. If the service is not running, the event is simply dropped.
 

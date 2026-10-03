@@ -23,8 +23,9 @@ public sealed class StatusReducerTests
     [InlineData("SessionStart", ClaudeStatus.Idle)]
     [InlineData("UserPromptSubmit", ClaudeStatus.Thinking)]
     [InlineData("PreToolUse", ClaudeStatus.Working)]
-    [InlineData("PostToolUse", ClaudeStatus.Thinking)]
-    [InlineData("PostToolUseFailure", ClaudeStatus.Thinking)]
+    [InlineData("PostToolUse", ClaudeStatus.Working)]
+    [InlineData("PostToolUseFailure", ClaudeStatus.Working)]
+    [InlineData("SubagentStop", ClaudeStatus.Working)]
     [InlineData("Notification", ClaudeStatus.Waiting)]
     [InlineData("Stop", ClaudeStatus.Idle)]
     [InlineData("StopFailure", ClaudeStatus.Idle)]
@@ -57,6 +58,7 @@ public sealed class StatusReducerTests
     [InlineData("UserPromptSubmit")]
     [InlineData("PreToolUse")]
     [InlineData("PostToolUse")]
+    [InlineData("SubagentStop")]
     [InlineData("Notification")]
     [InlineData("SessionEnd")]
     public void Apply_OtherEvents_ReturnNoOneShotEvent(string eventName)
@@ -81,9 +83,88 @@ public sealed class StatusReducerTests
     {
         var reducer = new StatusReducer();
 
-        Assert.Null(reducer.Apply(Hook("SubagentStop")));
+        Assert.Null(reducer.Apply(Hook("PreCompact")));
 
         Assert.Equal(0, reducer.SessionCount);
+    }
+
+    [Theory]
+    [InlineData("PreToolUse", WorkPace.Active)]
+    [InlineData("PostToolUse", WorkPace.Composing)]
+    [InlineData("PostToolUseFailure", WorkPace.Composing)]
+    [InlineData("SubagentStop", WorkPace.Composing)]
+    public void Apply_ToolEvents_SetPace(string eventName, WorkPace expected)
+    {
+        var reducer = new StatusReducer();
+
+        reducer.Apply(Hook(eventName));
+
+        Assert.Equal(expected, reducer.AggregatePace());
+    }
+
+    [Fact]
+    public void Turn_StaysWorkingBetweenToolsUntilStop()
+    {
+        var reducer = new StatusReducer();
+
+        reducer.Apply(Hook("UserPromptSubmit"));
+        Assert.Equal(ClaudeStatus.Thinking, reducer.Aggregate());
+
+        reducer.Apply(Hook("PreToolUse", seconds: 1));
+        reducer.Apply(Hook("PostToolUse", seconds: 2));
+        Assert.Equal(ClaudeStatus.Working, reducer.Aggregate());
+
+        reducer.Apply(Hook("PreToolUse", seconds: 20));
+        Assert.Equal((ClaudeStatus.Working, WorkPace.Active), (reducer.Aggregate(), reducer.AggregatePace()));
+
+        reducer.Apply(Hook("Stop", seconds: 21));
+        Assert.Equal(ClaudeStatus.Idle, reducer.Aggregate());
+    }
+
+    [Fact]
+    public void FallBackToThinking_OnlyAffectsComposingSessionsPastTheThreshold()
+    {
+        var reducer = new StatusReducer();
+        reducer.Apply(Hook("PostToolUse", "composing", seconds: 0));
+        reducer.Apply(Hook("PreToolUse", "active", seconds: 0));
+        reducer.Apply(Hook("PostToolUse", "recent", seconds: 30));
+        var threshold = TimeSpan.FromSeconds(45);
+
+        Assert.False(reducer.FallBackToThinking(T0.AddSeconds(45), threshold));
+        Assert.True(reducer.FallBackToThinking(T0.AddSeconds(46), threshold));
+        Assert.False(reducer.FallBackToThinking(T0.AddSeconds(46), threshold));
+
+        // "active" still runs a tool and "recent" is within the threshold; both stay Working.
+        Assert.Equal(ClaudeStatus.Working, reducer.Aggregate());
+        reducer.Apply(Hook("SessionEnd", "active", seconds: 47));
+        reducer.Apply(Hook("SessionEnd", "recent", seconds: 47));
+        Assert.Equal(ClaudeStatus.Thinking, reducer.Aggregate());
+    }
+
+    [Fact]
+    public void FallBackToThinking_IsUndoneByTheNextToolCall()
+    {
+        var reducer = new StatusReducer();
+        reducer.Apply(Hook("PostToolUse"));
+        reducer.FallBackToThinking(T0.AddSeconds(60), TimeSpan.FromSeconds(45));
+
+        reducer.Apply(Hook("PreToolUse", seconds: 61));
+
+        Assert.Equal((ClaudeStatus.Working, WorkPace.Active), (reducer.Aggregate(), reducer.AggregatePace()));
+    }
+
+    [Theory]
+    [InlineData("PreToolUse", "PostToolUse", WorkPace.Active)]
+    [InlineData("PostToolUse", "SubagentStop", WorkPace.Composing)]
+    [InlineData("PostToolUse", "UserPromptSubmit", WorkPace.Composing)]
+    [InlineData("UserPromptSubmit", "Notification", WorkPace.Active)]
+    public void AggregatePace_IsActiveIfAnyWorkingSessionIsActive(string first, string second, WorkPace expected)
+    {
+        var reducer = new StatusReducer();
+        reducer.Apply(Hook(first, "a"));
+        reducer.Apply(Hook(second, "b"));
+
+        Assert.Equal(expected, reducer.AggregatePace());
     }
 
     [Theory]
