@@ -39,7 +39,7 @@ Claude Code 在模型生成下一次工具调用参数时没有任何 hook，真
 assets/                    像素素材（只读输入，manifest.json 是动画参数的唯一来源）
 installer/                 Inno Setup 安装包脚本
 plugin/                    Claude Code 插件，注册 hook（说明见 plugin/README.md）
-scripts/                   Windows 服务的安装 / 卸载脚本、安装包构建脚本
+scripts/                   Windows 服务的安装 / 卸载脚本、安装包构建脚本、hook 模拟脚本
 src/
   StatusHub.Contracts/     共享 DTO：状态枚举、快照、事件、Hub 路径与方法名
   StatusHub.Service/       后台服务：接收 hook、归约状态、SignalR 广播
@@ -185,6 +185,14 @@ dotnet run --project src/DeskPet.App
 | 空闲超过 5 分钟 | sleep |
 
 切换节奏：每个状态至少显示 500 毫秒，之后还要等当前这一轮动画走完（进入帧、一串敲击、弹出动画或一圈循环特效）才切。等待期间收到的状态只保留最新的一个，快速变化时会直接跳到最终状态。
+
+不开 Claude Code 也能检查动画：服务和桌宠都运行时，执行
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\simulate-hooks.ps1
+```
+
+它模拟两轮完整的 hook 信号：第一轮包含工具失败、权限确认和几段快速变化，最后正常完成；第二轮在完成动画的锁定期内开始，最后因错误停止。控制台每行打印时间、事件和桌宠此时应有的表现。`-Speed 2` 加速播放，`-ThinkFallback` 额外等待 47 秒，观察 working 退回 think。模拟事件也会写进 hook 日志，session_id 以 `simulated-` 开头。
 
 配置在 `src/DeskPet.App/appsettings.json` 的 `DeskPet` 节：
 
