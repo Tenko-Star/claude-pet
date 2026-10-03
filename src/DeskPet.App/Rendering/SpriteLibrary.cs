@@ -21,15 +21,19 @@ public sealed class SpriteLibrary
 
     public SpriteManifest Manifest { get; }
 
-    /// <summary>Reads the manifest in <paramref name="runtimeDirectory"/> and decodes every sprite it references.</summary>
+    /// <summary>
+    /// Reads the manifest in <paramref name="runtimeDirectory"/> and decodes every sprite it references.
+    /// Character sprites must match the canvas size; effect sprites may be any size.
+    /// </summary>
     public static SpriteLibrary Load(string runtimeDirectory)
     {
         var manifest = ManifestParser.Parse(File.ReadAllText(Path.Combine(runtimeDirectory, AssetLocator.ManifestFileName)));
+        var characterFiles = manifest.CharacterFiles.ToHashSet(StringComparer.Ordinal);
         var sprites = new Dictionary<string, PixelBuffer>(StringComparer.Ordinal);
         foreach (var file in manifest.AllFiles)
         {
             var buffer = Decode(ResolveFile(runtimeDirectory, file));
-            if (buffer.Width != manifest.Width || buffer.Height != manifest.Height)
+            if (characterFiles.Contains(file) && (buffer.Width != manifest.Width || buffer.Height != manifest.Height))
             {
                 throw new InvalidDataException(
                     $"Sprite '{file}' is {buffer.Width}x{buffer.Height}, manifest canvas is {manifest.Width}x{manifest.Height}.");
@@ -41,9 +45,13 @@ public sealed class SpriteLibrary
 
     public PixelBuffer this[string file] => _sprites[file];
 
-    /// <summary>Composites the given files bottom to top at 1x.</summary>
-    public PixelBuffer Compose(IEnumerable<string> files) =>
-        PixelCompositor.Compose(Manifest.Width, Manifest.Height, files.Select(f => _sprites[f]));
+    /// <summary>Composites the placements bottom to top onto the stage at 1x.</summary>
+    public PixelBuffer Compose(IEnumerable<SpritePlacement> sprites) =>
+        PixelCompositor.ComposePlaced(Manifest.StageWidth, Manifest.StageHeight, sprites.Select(p =>
+        {
+            var buffer = _sprites[p.File];
+            return new PlacedBuffer(buffer, p.X, p.AlignBottom ? p.Y - buffer.Height : p.Y);
+        }));
 
     /// <summary>Decodes any WPF-supported image into premultiplied BGRA without resampling.</summary>
     public static PixelBuffer Decode(string path)

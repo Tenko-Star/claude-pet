@@ -35,6 +35,9 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new SpritePlayer(
             sp.GetRequiredService<SpriteLibrary>().Manifest,
             sp.GetRequiredService<ILogger<SpritePlayer>>()));
+        builder.Services.AddSingleton(sp => new PetController(
+            sp.GetRequiredService<SpritePlayer>(),
+            sp.GetRequiredService<IOptions<DeskPetOptions>>().Value.SleepAfter));
         builder.Services.AddSingleton(sp => new WindowStateStore(sp.GetRequiredService<ILogger<WindowStateStore>>()));
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddSingleton<TrayIcon>();

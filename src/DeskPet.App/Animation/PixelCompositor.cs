@@ -8,6 +8,9 @@ public sealed record PixelBuffer(int Width, int Height, byte[] Pbgra)
     public static PixelBuffer Empty(int width, int height) => new(width, height, new byte[width * height * 4]);
 }
 
+/// <summary>A buffer positioned on a larger canvas; <see cref="X"/> and <see cref="Y"/> may be negative.</summary>
+public readonly record struct PlacedBuffer(PixelBuffer Buffer, int X, int Y);
+
 /// <summary>Layer compositing and integer nearest-neighbor scaling on raw pixel buffers.</summary>
 public static class PixelCompositor
 {
@@ -42,6 +45,42 @@ public static class PixelCompositor
                 for (var c = 0; c < 4; c++)
                 {
                     dst[i + c] = (byte)(src[i + c] + (dst[i + c] * inv + 127) / 255);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Draws each buffer bottom to top with its top-left corner at (X, Y), source-over, clipped to the canvas.
+    /// </summary>
+    public static PixelBuffer ComposePlaced(int width, int height, IEnumerable<PlacedBuffer> layers)
+    {
+        var result = PixelBuffer.Empty(width, height);
+        var dst = result.Pbgra;
+        foreach (var (layer, left, top) in layers)
+        {
+            var src = layer.Pbgra;
+            var x0 = Math.Max(0, left);
+            var x1 = Math.Min(width, left + layer.Width);
+            var y0 = Math.Max(0, top);
+            var y1 = Math.Min(height, top + layer.Height);
+            for (var y = y0; y < y1; y++)
+            {
+                for (var x = x0; x < x1; x++)
+                {
+                    var s = ((y - top) * layer.Width + (x - left)) * 4;
+                    var d = (y * width + x) * 4;
+                    var a = src[s + 3];
+                    if (a == 0)
+                    {
+                        continue;
+                    }
+                    var inv = 255 - a;
+                    for (var c = 0; c < 4; c++)
+                    {
+                        dst[d + c] = (byte)(src[s + c] + (dst[d + c] * inv + 127) / 255);
+                    }
                 }
             }
         }

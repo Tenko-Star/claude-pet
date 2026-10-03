@@ -4,8 +4,7 @@ namespace DeskPet.App.Tests;
 
 public class BlinkSchedulerTests
 {
-    private static readonly BlinkLayer Eyes = new(
-        "eyes",
+    private static readonly BlinkSpec Eyes = new(
         [new BlinkStep("half", Ms(60)), new BlinkStep("closed", Ms(90)), new BlinkStep("half", Ms(60))],
         Ms(2500),
         Ms(5500));

@@ -1,19 +1,19 @@
 namespace DeskPet.App.Animation;
 
 /// <summary>
-/// Plays a <see cref="BlinkLayer"/> sequence at random intervals. Time only moves forward:
+/// Plays a <see cref="BlinkSpec"/> sequence at random intervals. Time only moves forward:
 /// calls must pass non-decreasing <c>now</c> values.
 /// </summary>
 public sealed class BlinkScheduler
 {
-    private readonly BlinkLayer _layer;
+    private readonly BlinkSpec _layer;
     private readonly Func<TimeSpan, TimeSpan, TimeSpan> _nextInterval;
     private TimeSpan _sequenceStart;
 
     /// <param name="layer">Blink steps and interval bounds from the manifest.</param>
     /// <param name="nextInterval">Returns a gap in [min, max]; defaults to a uniform random pick.</param>
     /// <param name="start">Time the scheduler starts; the first blink begins one interval later.</param>
-    public BlinkScheduler(BlinkLayer layer, Func<TimeSpan, TimeSpan, TimeSpan>? nextInterval = null, TimeSpan start = default)
+    public BlinkScheduler(BlinkSpec layer, Func<TimeSpan, TimeSpan, TimeSpan>? nextInterval = null, TimeSpan start = default)
     {
         _layer = layer;
         _nextInterval = nextInterval ?? UniformInterval;

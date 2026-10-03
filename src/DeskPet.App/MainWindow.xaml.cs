@@ -10,18 +10,19 @@ using DeskPet.App.Animation;
 using DeskPet.App.Rendering;
 using DeskPet.App.Windowing;
 using Microsoft.Extensions.Options;
+using StatusHub.Contracts;
 
 namespace DeskPet.App;
 
 /// <summary>
 /// Transparent, borderless, topmost window that shows the character. All animation decisions
-/// live in <see cref="SpritePlayer"/>; this class only renders and handles input.
+/// live in <see cref="PetController"/> and <see cref="SpritePlayer"/>; this class only renders and handles input.
 /// </summary>
 public partial class MainWindow : Window
 {
     private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromMinutes(1);
 
-    private readonly SpritePlayer _player;
+    private readonly PetController _pet;
     private readonly SpriteLibrary _sprites;
     private readonly WindowStateStore _stateStore;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -31,12 +32,12 @@ public partial class MainWindow : Window
 
     private int _scale;
     private DpiScale _dpi = new(1, 1);
-    private IReadOnlyList<string>? _shownFiles;
+    private IReadOnlyList<SpritePlacement>? _shownSprites;
 
-    public MainWindow(SpritePlayer player, SpriteLibrary sprites, WindowStateStore stateStore, IOptions<DeskPetOptions> options)
+    public MainWindow(PetController pet, SpriteLibrary sprites, WindowStateStore stateStore, IOptions<DeskPetOptions> options)
     {
         InitializeComponent();
-        _player = player;
+        _pet = pet;
         _sprites = sprites;
         _stateStore = stateStore;
 
@@ -64,7 +65,7 @@ public partial class MainWindow : Window
 
     public int Scale => _scale;
 
-    public bool IsTalking => _player.IsTalking;
+    public bool IsTalking => _pet.IsTalking;
 
     public void SetScale(int scale)
     {
@@ -80,14 +81,28 @@ public partial class MainWindow : Window
 
     public void SetTalking(bool talking)
     {
-        _player.SetTalking(talking, _clock.Elapsed);
+        _pet.SetTalking(talking, _clock.Elapsed);
         RenderFrame();
     }
 
-    /// <summary>Forwards a status to the player. Extension point for the future status client.</summary>
-    public void SetStatus(string status)
+    /// <summary>Shows the latest aggregated status. Must be called on the UI thread.</summary>
+    public void ApplySnapshot(StatusSnapshot snapshot)
     {
-        _player.SetStatus(status);
+        _pet.ApplySnapshot(snapshot, _clock.Elapsed);
+        RenderFrame();
+    }
+
+    /// <summary>Plays a one-shot status event. Must be called on the UI thread.</summary>
+    public void ApplyEvent(StatusEvent statusEvent)
+    {
+        _pet.ApplyEvent(statusEvent, _clock.Elapsed);
+        RenderFrame();
+    }
+
+    /// <summary>The status stream was lost. Must be called on the UI thread.</summary>
+    public void ApplyDisconnected()
+    {
+        _pet.ApplyDisconnected(_clock.Elapsed);
         RenderFrame();
     }
 
@@ -160,18 +175,18 @@ public partial class MainWindow : Window
             {
                 _scaleItems[i].IsChecked = WindowGeometry.MinScale + i == _scale;
             }
-            _talkItem.IsChecked = _player.IsTalking;
+            _talkItem.IsChecked = _pet.IsTalking;
         };
         return menu;
     }
 
-    // Sizes the image so one sprite pixel covers exactly _scale x _scale device pixels.
+    // Sizes the image to the stage so one sprite pixel covers exactly _scale x _scale device pixels.
     private void ApplySize()
     {
         var manifest = _sprites.Manifest;
-        SpriteImage.Width = WindowGeometry.ToDips(manifest.Width * _scale, _dpi.DpiScaleX);
-        SpriteImage.Height = WindowGeometry.ToDips(manifest.Height * _scale, _dpi.DpiScaleY);
-        _shownFiles = null;
+        SpriteImage.Width = WindowGeometry.ToDips(manifest.StageWidth * _scale, _dpi.DpiScaleX);
+        SpriteImage.Height = WindowGeometry.ToDips(manifest.StageHeight * _scale, _dpi.DpiScaleY);
+        _shownSprites = null;
         RenderFrame();
         SnapPosition();
     }
@@ -180,18 +195,18 @@ public partial class MainWindow : Window
     {
         _timer.Stop();
         var now = _clock.Elapsed;
-        var frame = _player.Evaluate(now);
+        var frame = _pet.Evaluate(now);
 
-        if (_shownFiles is null || !_shownFiles.SequenceEqual(frame.Files))
+        if (_shownSprites is null || !_shownSprites.SequenceEqual(frame.Sprites))
         {
-            var scaled = PixelCompositor.ScaleNearest(_sprites.Compose(frame.Files), _scale);
+            var scaled = PixelCompositor.ScaleNearest(_sprites.Compose(frame.Sprites), _scale);
             // Bitmap DPI matches the monitor so the image maps 1:1 onto device pixels.
             var bitmap = BitmapSource.Create(
                 scaled.Width, scaled.Height, 96 * _dpi.DpiScaleX, 96 * _dpi.DpiScaleY,
                 PixelFormats.Pbgra32, null, scaled.Pbgra, scaled.Stride);
             bitmap.Freeze();
             SpriteImage.Source = bitmap;
-            _shownFiles = frame.Files;
+            _shownSprites = frame.Sprites;
         }
 
         if (frame.NextChangeAt != TimeSpan.MaxValue)

@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using DeskPet.App.Animation;
 using DeskPet.App.Rendering;
 using DeskPet.App.Windowing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 
@@ -14,10 +15,12 @@ public sealed class TrayIcon : IDisposable
     private readonly Drawing.Icon _icon;
     private readonly IntPtr _iconHandle;
 
-    public TrayIcon(MainWindow window, SpriteLibrary sprites, SpritePlayer player)
+    public TrayIcon(MainWindow window, SpriteLibrary sprites)
     {
-        // The icon is the first frame of the animation, as the manifest defines it.
-        var frame = sprites.Compose(player.Evaluate(TimeSpan.Zero).Files);
+        // The icon is the first idle frame, as the manifest defines it. A separate player keeps
+        // the window's animation timeline untouched.
+        var player = new SpritePlayer(sprites.Manifest, NullLogger<SpritePlayer>.Instance);
+        var frame = sprites.Compose(player.Evaluate(TimeSpan.Zero).Sprites);
         var size = Forms.SystemInformation.SmallIconSize.Width;
         using (var bitmap = ToBitmap(FitNearest(frame, size)))
         {

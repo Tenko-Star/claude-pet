@@ -10,4 +10,7 @@ public sealed class DeskPetOptions
 
     /// <summary>Optional path to the asset package root or its runtime directory. Null means search upward.</summary>
     public string? AssetRoot { get; set; }
+
+    /// <summary>How long the pet stays idle before it falls asleep.</summary>
+    public TimeSpan SleepAfter { get; set; } = TimeSpan.FromMinutes(5);
 }

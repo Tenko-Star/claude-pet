@@ -5,8 +5,9 @@ using DeskPet.App.Rendering;
 namespace DeskPet.App.Tests;
 
 /// <summary>
-/// Renders the player at each frame start of runtime/pixel-idle.gif and compares pixels.
-/// The GIF loops 3200 ms with one blink starting at 1200 ms.
+/// Renders the idle state at each frame start of runtime/pixel-idle.gif and compares pixels.
+/// The GIF loops 3200 ms with one blink starting at 1200 ms; it covers the character canvas,
+/// so its frames are placed at the manifest's character offset on the stage.
 /// </summary>
 public class ReferenceGifTests
 {
@@ -17,7 +18,7 @@ public class ReferenceGifTests
     {
         var library = SpriteLibrary.Load(TestAssets.RuntimeDirectory);
         var player = new SpritePlayer(library.Manifest, new RecordingLogger<SpritePlayer>(), (_, _) => TimeSpan.FromMilliseconds(GifBlinkStartMs));
-        var gifFrames = DecodeGif(Path.Combine(TestAssets.RuntimeDirectory, "pixel-idle.gif"), library.Manifest.Width, library.Manifest.Height);
+        var gifFrames = DecodeGif(Path.Combine(TestAssets.RuntimeDirectory, "pixel-idle.gif"), library.Manifest);
 
         Assert.Equal(8, gifFrames.Count);
         Assert.Equal(3200, gifFrames.Sum(f => f.DurationMs));
@@ -25,7 +26,7 @@ public class ReferenceGifTests
         var start = 0;
         foreach (var (expected, durationMs) in gifFrames)
         {
-            var actual = library.Compose(player.Evaluate(TimeSpan.FromMilliseconds(start)).Files);
+            var actual = library.Compose(player.Evaluate(TimeSpan.FromMilliseconds(start)).Sprites);
             AssertSamePixels(expected, actual, start);
             start += durationMs;
         }
@@ -48,9 +49,11 @@ public class ReferenceGifTests
     }
 
     // Every frame in this GIF uses disposal "restore to background", so each frame is its
-    // sub-rectangle placed on a transparent canvas.
-    private static List<(PixelBuffer Pixels, int DurationMs)> DecodeGif(string path, int width, int height)
+    // sub-rectangle placed on a transparent stage.
+    private static List<(PixelBuffer Pixels, int DurationMs)> DecodeGif(string path, SpriteManifest manifest)
     {
+        var width = manifest.StageWidth;
+        var offset = manifest.CharacterOffset;
         using var stream = File.OpenRead(path);
         var decoder = new GifBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
         var frames = new List<(PixelBuffer, int)>();
@@ -64,10 +67,11 @@ public class ReferenceGifTests
             Assert.Equal(2, disposal);
 
             var part = SpriteLibrary.ToPixelBuffer(frame);
-            var canvas = PixelBuffer.Empty(width, height);
+            var canvas = PixelBuffer.Empty(width, manifest.StageHeight);
             for (var y = 0; y < part.Height; y++)
             {
-                part.Pbgra.AsSpan(y * part.Stride, part.Stride).CopyTo(canvas.Pbgra.AsSpan(((top + y) * width + left) * 4));
+                var row = (offset.Y + top + y) * width + offset.X + left;
+                part.Pbgra.AsSpan(y * part.Stride, part.Stride).CopyTo(canvas.Pbgra.AsSpan(row * 4));
             }
             frames.Add((canvas, delayMs));
         }
