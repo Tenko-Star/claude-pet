@@ -34,13 +34,13 @@ public sealed class CharacterCatalogTests : IDisposable
     [Fact]
     public void Lists_built_in_then_user_characters_with_display_names()
     {
-        AddCharacter(BuiltIn, "pixel-girl", """{ "name": "橙发女孩" }""");
+        AddCharacter(BuiltIn, "claude-girl", """{ "name": "Claude Girl" }""");
         AddCharacter(User, "cat", """{ "name": "猫" }""");
 
         var characters = CharacterCatalog.Scan(BuiltIn, User, new RecordingLogger<CharacterCatalog>());
 
         Assert.Equal(
-            [new CharacterInfo("pixel-girl", "橙发女孩", Path.Combine(BuiltIn, "pixel-girl"), true),
+            [new CharacterInfo("claude-girl", "Claude Girl", Path.Combine(BuiltIn, "claude-girl"), true),
              new CharacterInfo("cat", "猫", Path.Combine(User, "cat"), false)],
             characters);
     }
@@ -48,12 +48,12 @@ public sealed class CharacterCatalogTests : IDisposable
     [Fact]
     public void User_character_overrides_built_in_with_the_same_id()
     {
-        AddCharacter(BuiltIn, "pixel-girl");
-        AddCharacter(User, "pixel-girl");
+        AddCharacter(BuiltIn, "claude-girl");
+        AddCharacter(User, "claude-girl");
 
         var character = Assert.Single(CharacterCatalog.Scan(BuiltIn, User, new RecordingLogger<CharacterCatalog>()));
         Assert.False(character.IsBuiltIn);
-        Assert.Equal(Path.Combine(User, "pixel-girl"), character.Directory);
+        Assert.Equal(Path.Combine(User, "claude-girl"), character.Directory);
     }
 
     [Fact]

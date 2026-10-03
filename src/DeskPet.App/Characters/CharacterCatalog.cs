@@ -24,7 +24,7 @@ public sealed class CharacterCatalogChangedEventArgs(IReadOnlySet<string> ids) :
 public sealed class CharacterCatalog : IDisposable
 {
     public const string InfoFileName = "character.json";
-    public const string DefaultCharacterId = "pixel-girl";
+    public const string DefaultCharacterId = "claude-girl";
 
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(500);
 

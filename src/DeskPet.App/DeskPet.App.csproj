@@ -29,7 +29,7 @@
 
   <ItemGroup>
     <!-- Built-in character packages: characters/<id>/ next to the executable. -->
-    <None Include="..\..\assets\runtime\**\*" LinkBase="characters\pixel-girl" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\assets\runtime\**\*" LinkBase="characters\claude-girl" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="BuiltInCharacters\**" />
     <None Include="BuiltInCharacters\**\*" LinkBase="characters" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

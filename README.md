@@ -206,7 +206,7 @@ dotnet run --project src/DeskPet.App
 
 | 位置 | 说明 |
 | --- | --- |
-| 程序目录下的 `characters\` | 内置角色，编译时从 `assets/runtime` 复制成 `characters\pixel-girl` |
+| 程序目录下的 `characters\` | 内置角色，编译时从 `assets/runtime` 复制成 `characters\claude-girl` |
 | `%LOCALAPPDATA%\ClaudePet\characters\` | 你自己加的角色；右键菜单"角色 → 打开角色目录"可直接打开 |
 
 - 用户目录里的角色和内置角色同 id 时，用用户目录里的。
