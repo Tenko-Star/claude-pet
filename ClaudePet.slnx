@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DeskPet.App/DeskPet.App.csproj" />
+    <Project Path="src/StatusHub.Contracts/StatusHub.Contracts.csproj" />
+    <Project Path="src/StatusHub.Service/StatusHub.Service.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeskPet.App.Tests/DeskPet.App.Tests.csproj" />
+    <Project Path="tests/StatusHub.Contracts.Tests/StatusHub.Contracts.Tests.csproj" />
+    <Project Path="tests/StatusHub.Service.Tests/StatusHub.Service.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,21 @@
+{
+  "canvas": [119, 129],
+  "note": "所有图层画布相同、左上角对齐，按 layers 顺序从下往上叠放，透明像素跳过",
+  "layers": ["hair", "main", "eyes", "mouth"],
+  "hair": {
+    "frames": ["hair_c.png", "hair_l.png", "hair_c.png", "hair_r.png"],
+    "frameMs": 800,
+    "alternatives": { "hair_l_big.png": "大幅度左飘，可用于跳跃、甩头等大动作" }
+  },
+  "main": "main.png",
+  "eyes": {
+    "blink": [["eye_half.png", 60], ["eye_closed.png", 90], ["eye_half.png", 60]],
+    "intervalMs": [2500, 5500]
+  },
+  "mouth": { "open": "mouth_open.png", "talkToggleMs": 140 },
+  "reserved": {
+    "arms.png": "手臂层（原图减去无手臂图），留给打字、托腮等动作",
+    "noarm.png": "无手臂的整身图，手臂抬起后露出的底图",
+    "full.png": "原始全身图还原后的像素版，作对照用"
+  }
+}

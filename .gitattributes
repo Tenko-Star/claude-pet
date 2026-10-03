@@ -1,0 +1,19 @@
+* text=auto
+
+*.cs      text diff=csharp
+*.csproj  text
+*.props   text
+*.slnx    text
+*.xaml    text
+*.sh      text eol=lf
+
+# Binary assets
+*.png  binary
+*.gif  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.bmp  binary
+*.webp binary
+*.npz  binary
+*.npy  binary
