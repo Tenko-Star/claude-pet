@@ -1,6 +1,8 @@
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using StatusHub.Service.Status;
 
 namespace StatusHub.Service.HookIngest;
 
@@ -16,6 +18,7 @@ public static class HookIngestEndpoints
         string eventName,
         HttpRequest request,
         HookEventLog log,
+        ChannelWriter<HookEvent> events,
         IHostApplicationLifetime lifetime,
         ILogger<HookEventLog> logger)
     {
@@ -30,6 +33,12 @@ public static class HookIngestEndpoints
         // Once the body is in hand, record it even if the hook client has already given up;
         // only service shutdown cancels the write.
         await log.AppendAsync(receivedAt, eventName, body, lifetime.ApplicationStopping);
+
+        // Unbounded channel: TryWrite only fails after the channel is completed.
+        if (HookEvent.TryParse(eventName, body, receivedAt) is { } hookEvent)
+        {
+            events.TryWrite(hookEvent);
+        }
 
         if (logger.IsEnabled(LogLevel.Debug))
         {

@@ -1,8 +1,11 @@
 using System.Net;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
+using StatusHub.Contracts;
 using StatusHub.Service.HookIngest;
+using StatusHub.Service.Status;
 
 namespace StatusHub.Service;
 
@@ -24,11 +27,29 @@ public static class ServiceHost
             .Configure<IOptions<HookIngestOptions>>((kestrel, ingest) =>
                 kestrel.Listen(IPAddress.Loopback, ingest.Value.Port));
 
+        builder.Services.AddOptions<StatusOptions>()
+            .Bind(builder.Configuration.GetSection(StatusOptions.SectionName))
+            .Validate(o => o.SessionTimeout > TimeSpan.Zero, "Status:SessionTimeout must be positive.")
+            .Validate(o => o.ExpiryScanInterval > TimeSpan.Zero, "Status:ExpiryScanInterval must be positive.")
+            .ValidateOnStart();
+
         builder.Services.AddSingleton<HookEventLog>();
-        builder.Services.AddHostedService<Worker>();
+
+        // Many writers (ingest requests), one reader (the reducer), like a Rust mpsc channel.
+        var hookEvents = Channel.CreateUnbounded<HookEvent>(new UnboundedChannelOptions { SingleReader = true });
+        builder.Services.AddSingleton(hookEvents.Reader);
+        builder.Services.AddSingleton(hookEvents.Writer);
+
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<StatusStore>();
+        builder.Services.AddSignalR();
+        builder.Services.AddHostedService<StatusReducerService>();
 
         var app = builder.Build();
+        // The slim builder does not add WebSockets; without it SignalR falls back to SSE or long polling.
+        app.UseWebSockets();
         app.MapHookIngest();
+        app.MapHub<StatusStreamHub>(StatusHubProtocol.Path);
         return app;
     }
 }
