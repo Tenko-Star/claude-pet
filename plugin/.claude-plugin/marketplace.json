@@ -1,0 +1,13 @@
+{
+  "name": "deskpet-local",
+  "description": "Local marketplace for the DeskPet hooks plugin.",
+  "owner": {
+    "name": "Tenko"
+  },
+  "plugins": [
+    {
+      "name": "deskpet-hooks",
+      "source": "."
+    }
+  ]
+}

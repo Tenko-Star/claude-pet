@@ -1,0 +1,19 @@
+{
+  "name": "deskpet-hooks",
+  "displayName": "DeskPet Hooks",
+  "version": "0.1.0",
+  "description": "Forwards Claude Code hook events to the local StatusHub service.",
+  "author": {
+    "name": "Tenko"
+  },
+  "userConfig": {
+    "port": {
+      "type": "number",
+      "title": "StatusHub port",
+      "description": "Loopback port where StatusHub.Service listens (HookIngest:Port).",
+      "default": 47821,
+      "min": 1,
+      "max": 65535
+    }
+  }
+}
