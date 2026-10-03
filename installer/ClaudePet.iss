@@ -32,6 +32,10 @@ UninstallDisplayIcon={app}\DeskPet\{#DeskPetExe}
 ; The start-at-login value lives in HKCU of the installing user on purpose.
 UsedUserAreasWarning=no
 
+[Languages]
+; Taken from the jrsoftware/issrc tag is-6_7_3 (Files/Languages/Unofficial).
+Name: "chs"; MessagesFile: "Languages\ChineseSimplified.isl"
+
 [Tasks]
 Name: "autostart"; Description: "登录 Windows 时自动启动桌宠"; Flags: unchecked
 

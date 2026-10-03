@@ -81,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.
 - **插件**：
   - 安装包会把插件市场 `deskpet-local` 换成安装目录里的那份。如果之前从仓库目录注册过，会被替换。
   - 插件只对 Windows 上的 Claude Code 生效；Claude Code 跑在 WSL 里时，仍需按下文"3. 安装 Claude Code 插件"手动注册。
-- **向导语言**：安装向导界面是英文，因为当前 Inno Setup 没有自带简体中文语言包。
+- **向导语言**：简体中文。Inno Setup 6.7.3 不带这个语言包，所以把 `installer/Languages/ChineseSimplified.isl`（取自 Inno Setup 源码仓库 `is-6_7_3` 标签）放在了仓库里。
 
 下面"使用"一节是开发时从源码手动安装的方式。
 
