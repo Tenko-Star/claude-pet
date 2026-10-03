@@ -11,11 +11,11 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
                                                      127.0.0.1:47821/hooks/<事件>    /hubs/status
 ```
 
-1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Notification`、`Stop`、`StopFailure` 这 8 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
+1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Notification`、`Stop`、`StopFailure` 这 9 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
 2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。多个会话同时活跃时按优先级取一个：`Waiting > Working > Thinking > Idle`。
 3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
    - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`），新客户端连上立刻收到一份，之后只在变化时推送。
-   - `Event`：一次性事件 `Done`（任务完成）和 `Error`（出错），不进入快照。
+   - `Event`：一次性事件 `Done`（任务完成）、`Error`（出错）和 `ToolFailure`（工具调用失败），不进入快照。
 
 事件到状态的映射：
 
@@ -24,6 +24,7 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 | `SessionStart` | Idle |
 | `UserPromptSubmit`、`PostToolUse` | Thinking |
 | `PreToolUse` | Working |
+| `PostToolUseFailure` | Thinking，并广播 `ToolFailure` 事件 |
 | `Notification` | Waiting |
 | `Stop` | Idle，并广播 `Done` 事件 |
 | `StopFailure` | Idle，并广播 `Error` 事件 |

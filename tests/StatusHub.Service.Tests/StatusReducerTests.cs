@@ -24,6 +24,7 @@ public sealed class StatusReducerTests
     [InlineData("UserPromptSubmit", ClaudeStatus.Thinking)]
     [InlineData("PreToolUse", ClaudeStatus.Working)]
     [InlineData("PostToolUse", ClaudeStatus.Thinking)]
+    [InlineData("PostToolUseFailure", ClaudeStatus.Thinking)]
     [InlineData("Notification", ClaudeStatus.Waiting)]
     [InlineData("Stop", ClaudeStatus.Idle)]
     [InlineData("StopFailure", ClaudeStatus.Idle)]
@@ -41,6 +42,7 @@ public sealed class StatusReducerTests
     [Theory]
     [InlineData("Stop", ClaudeStatus.Done)]
     [InlineData("StopFailure", ClaudeStatus.Error)]
+    [InlineData("PostToolUseFailure", ClaudeStatus.ToolFailure)]
     public void Apply_StopEvents_ReturnOneShotEvent(string eventName, ClaudeStatus kind)
     {
         var reducer = new StatusReducer();

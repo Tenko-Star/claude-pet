@@ -29,6 +29,11 @@ public sealed class StatusReducer
             case "PreToolUse":
                 status = ClaudeStatus.Working;
                 break;
+            case "PostToolUseFailure":
+                // The tool has finished, as with PostToolUse; the failure itself is a one-shot event.
+                status = ClaudeStatus.Thinking;
+                oneShot = new StatusEvent(ClaudeStatus.ToolFailure, e.SessionId, e.ReceivedAt);
+                break;
             case "Notification":
                 status = ClaudeStatus.Waiting;
                 break;
