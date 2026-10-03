@@ -42,12 +42,12 @@ Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permissi
 
 ## Assets
 
-`assets/` holds the extracted `pixel-girl` package. Treat it as read-only input; never edit, re-encode or move files there. Locate the package root by finding `runtime/manifest.json` and verify the paths below before relying on them.
+`assets/` is the asset directory and the root of the extracted `pixel-girl` package. Treat it as read-only input; never edit, re-encode or move files there.
 
-- `runtime/sprites/*.png`: layer images, all on the same 119x129 canvas, top-left aligned
-- `runtime/manifest.json`: layer order and animation parameters (frame durations, blink timing, talk toggle). This file is the source of truth; never hard-code frame names or timings in C#.
-- `runtime/pixel-idle.gif`: reference of the finished idle animation
-- `preview/`, `pipeline/`, `source_images/`: tooling and AI source images; not used at runtime and not shipped
+- `assets/runtime/sprites/*.png`: layer images, all on the same 119x129 canvas, top-left aligned
+- `assets/runtime/manifest.json`: layer order and animation parameters (frame durations, blink timing, talk toggle). This file is the source of truth; never hard-code frame names or timings in C#.
+- `assets/runtime/pixel-idle.gif`: reference of the finished idle animation
+- `assets/preview/`, `assets/pipeline/`, `assets/source_images/`: tooling and AI source images; not used at runtime and not shipped
 
 Rendering rules for the character:
 - Composite layers bottom to top in manifest order: back hair frame, main body, eye patch, mouth patch. Patches contain only changed pixels; everything else is transparent.
