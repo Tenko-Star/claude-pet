@@ -79,7 +79,7 @@ public class ManifestParserTests
 
         var done = states["done"];
         Assert.Equal(EyesMode.Off, done.Eyes);
-        Assert.Equal(Ms(2200), done.Duration);
+        Assert.Equal(Ms(15_000), done.Duration);
         Assert.Equal("idle", done.Then);
 
         Assert.Equal(EyesMode.Off, states["error"].Eyes);

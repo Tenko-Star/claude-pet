@@ -64,7 +64,7 @@
       "hook": "Stop",
       "body": "main_done.png",
       "eyes": "off", "mouth": false,
-      "durationMs": 2200, "then": "idle",
+      "durationMs": 15000, "then": "idle",
       "fx": {
         "anchor": [0, 0],
         "loop": [
