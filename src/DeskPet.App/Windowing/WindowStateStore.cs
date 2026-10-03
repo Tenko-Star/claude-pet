@@ -4,8 +4,8 @@ using Microsoft.Extensions.Logging;
 
 namespace DeskPet.App.Windowing;
 
-/// <summary>Window position (DIPs) and scale remembered between runs.</summary>
-public sealed record WindowPlacement(double Left, double Top, int Scale);
+/// <summary>Window position (DIPs), scale and selected character id remembered between runs.</summary>
+public sealed record WindowPlacement(double Left, double Top, int Scale, string? Character = null);
 
 /// <summary>Loads and saves <see cref="WindowPlacement"/> as a small JSON file.</summary>
 public sealed class WindowStateStore

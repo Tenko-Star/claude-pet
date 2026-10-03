@@ -8,6 +8,8 @@ namespace DeskPet.App.Rendering;
 /// <summary>Decoded sprite layers for one manifest, keyed by the file names the manifest uses.</summary>
 public sealed class SpriteLibrary
 {
+    public const string ManifestFileName = "manifest.json";
+
     private readonly Dictionary<string, PixelBuffer> _sprites;
 
     private SpriteLibrary(string runtimeDirectory, SpriteManifest manifest, Dictionary<string, PixelBuffer> sprites)
@@ -27,7 +29,7 @@ public sealed class SpriteLibrary
     /// </summary>
     public static SpriteLibrary Load(string runtimeDirectory)
     {
-        var manifest = ManifestParser.Parse(File.ReadAllText(Path.Combine(runtimeDirectory, AssetLocator.ManifestFileName)));
+        var manifest = ManifestParser.Parse(File.ReadAllText(Path.Combine(runtimeDirectory, ManifestFileName)));
         var characterFiles = manifest.CharacterFiles.ToHashSet(StringComparer.Ordinal);
         var sprites = new Dictionary<string, PixelBuffer>(StringComparer.Ordinal);
         foreach (var file in manifest.AllFiles)

@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using DeskPet.App.Animation;
-using DeskPet.App.Rendering;
 using DeskPet.App.Windowing;
 using Microsoft.Extensions.Logging.Abstractions;
 using Drawing = System.Drawing;
@@ -8,25 +7,17 @@ using Forms = System.Windows.Forms;
 
 namespace DeskPet.App;
 
-/// <summary>Notification-area icon with the same scale, talk and exit actions as the window menu.</summary>
+/// <summary>Notification-area icon with the same scale, character, autostart and exit actions as the window menu.</summary>
 public sealed class TrayIcon : IDisposable
 {
+    private readonly MainWindow _window;
     private readonly Forms.NotifyIcon _notifyIcon;
-    private readonly Drawing.Icon _icon;
-    private readonly IntPtr _iconHandle;
+    private Drawing.Icon? _icon;
+    private IntPtr _iconHandle;
 
-    public TrayIcon(MainWindow window, SpriteLibrary sprites)
+    public TrayIcon(MainWindow window)
     {
-        // The icon is the first idle frame, as the manifest defines it. A separate player keeps
-        // the window's animation timeline untouched.
-        var player = new SpritePlayer(sprites.Manifest, NullLogger<SpritePlayer>.Instance);
-        var frame = sprites.Compose(player.Evaluate(TimeSpan.Zero).Sprites);
-        var size = Forms.SystemInformation.SmallIconSize.Width;
-        using (var bitmap = ToBitmap(FitNearest(frame, size)))
-        {
-            _iconHandle = bitmap.GetHicon();
-        }
-        _icon = Drawing.Icon.FromHandle(_iconHandle);
+        _window = window;
 
         var menu = new Forms.ContextMenuStrip();
         var scaleMenu = new Forms.ToolStripMenuItem("缩放");
@@ -35,9 +26,11 @@ public sealed class TrayIcon : IDisposable
             var value = s;
             scaleMenu.DropDownItems.Add(new Forms.ToolStripMenuItem($"{value}×", null, (_, _) => window.SetScale(value)) { Tag = value });
         }
-        var talkItem = new Forms.ToolStripMenuItem("说话", null, (_, _) => window.SetTalking(!window.IsTalking));
+        var characterMenu = new Forms.ToolStripMenuItem("角色");
+        var autoStartItem = new Forms.ToolStripMenuItem("开机自启", null, (_, _) => window.SetAutoStart(!window.IsAutoStartEnabled));
         menu.Items.Add(scaleMenu);
-        menu.Items.Add(talkItem);
+        menu.Items.Add(characterMenu);
+        menu.Items.Add(autoStartItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripMenuItem("退出", null, (_, _) => window.RequestExit()));
         menu.Opening += (_, _) =>
@@ -46,16 +39,18 @@ public sealed class TrayIcon : IDisposable
             {
                 item.Checked = (int)item.Tag! == window.Scale;
             }
-            talkItem.Checked = window.IsTalking;
+            RebuildCharacterMenu(characterMenu);
+            autoStartItem.Checked = window.IsAutoStartEnabled;
         };
 
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = _icon,
             Text = "DeskPet",
             ContextMenuStrip = menu,
-            Visible = true,
         };
+        UpdateIcon();
+        _notifyIcon.Visible = true;
+        window.CharacterChanged += (_, _) => UpdateIcon();
     }
 
     public void Dispose()
@@ -63,8 +58,53 @@ public sealed class TrayIcon : IDisposable
         _notifyIcon.Visible = false;
         _notifyIcon.ContextMenuStrip?.Dispose();
         _notifyIcon.Dispose();
-        _icon.Dispose();
-        DestroyIcon(_iconHandle);
+        ReleaseIcon();
+    }
+
+    // The icon is the first idle frame of the current character. A separate player keeps the
+    // window's animation timeline untouched.
+    private void UpdateIcon()
+    {
+        var sprites = _window.Sprites;
+        var player = new SpritePlayer(sprites.Manifest, NullLogger<SpritePlayer>.Instance);
+        var frame = sprites.Compose(player.Evaluate(TimeSpan.Zero).Sprites);
+        var size = Forms.SystemInformation.SmallIconSize.Width;
+        IntPtr handle;
+        using (var bitmap = ToBitmap(FitNearest(frame, size)))
+        {
+            handle = bitmap.GetHicon();
+        }
+        var icon = Drawing.Icon.FromHandle(handle);
+        _notifyIcon.Icon = icon;
+        ReleaseIcon();
+        _icon = icon;
+        _iconHandle = handle;
+    }
+
+    private void ReleaseIcon()
+    {
+        _icon?.Dispose();
+        if (_iconHandle != IntPtr.Zero)
+        {
+            DestroyIcon(_iconHandle);
+        }
+        _icon = null;
+        _iconHandle = IntPtr.Zero;
+    }
+
+    private void RebuildCharacterMenu(Forms.ToolStripMenuItem characterMenu)
+    {
+        characterMenu.DropDownItems.Clear();
+        foreach (var character in _window.Characters)
+        {
+            var id = character.Id;
+            characterMenu.DropDownItems.Add(new Forms.ToolStripMenuItem(character.Name, null, (_, _) => _window.SwitchCharacter(id))
+            {
+                Checked = string.Equals(id, _window.CurrentCharacter.Id, StringComparison.OrdinalIgnoreCase),
+            });
+        }
+        characterMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        characterMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("打开角色目录", null, (_, _) => _window.OpenCharacterFolder()));
     }
 
     // Pads the frame to a square and picks source pixels by nearest neighbor; never filters.

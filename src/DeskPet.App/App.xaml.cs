@@ -1,13 +1,11 @@
 using System.IO;
 using System.Windows;
-using DeskPet.App.Animation;
-using DeskPet.App.Rendering;
+using DeskPet.App.Characters;
 using DeskPet.App.Status;
 using DeskPet.App.Windowing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace DeskPet.App;
 
@@ -28,18 +26,13 @@ public partial class App : Application
         builder.Logging.ClearProviders();
         builder.Logging.AddDebug();
         builder.Services.Configure<DeskPetOptions>(builder.Configuration.GetSection(DeskPetOptions.SectionName));
-        builder.Services.AddSingleton(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<DeskPetOptions>>().Value;
-            return SpriteLibrary.Load(AssetLocator.FindRuntimeDirectory(options.AssetRoot, AppContext.BaseDirectory));
-        });
-        builder.Services.AddSingleton(sp => new SpritePlayer(
-            sp.GetRequiredService<SpriteLibrary>().Manifest,
-            sp.GetRequiredService<ILogger<SpritePlayer>>()));
-        builder.Services.AddSingleton(sp => new PetController(
-            sp.GetRequiredService<SpritePlayer>(),
-            sp.GetRequiredService<IOptions<DeskPetOptions>>().Value.SleepAfter));
+        builder.Services.AddSingleton(sp => new CharacterCatalog(
+            CharacterCatalog.DefaultBuiltInRoot,
+            CharacterCatalog.DefaultUserRoot,
+            sp.GetRequiredService<ILogger<CharacterCatalog>>()));
+        builder.Services.AddSingleton<PetSessionFactory>();
         builder.Services.AddSingleton(sp => new WindowStateStore(sp.GetRequiredService<ILogger<WindowStateStore>>()));
+        builder.Services.AddSingleton(_ => new AutoStart());
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddHostedService<StatusClientService>();
@@ -55,7 +48,7 @@ public partial class App : Application
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
-            logger.LogError(ex, "Failed to load the sprite assets.");
+            logger.LogError(ex, "Failed to load a character.");
             MessageBox.Show(ex.Message, "DeskPet", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             return;

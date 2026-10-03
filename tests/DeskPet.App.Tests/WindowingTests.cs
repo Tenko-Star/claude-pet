@@ -71,8 +71,8 @@ public sealed class WindowStateStoreTests : IDisposable
     public void Save_then_load_round_trips()
     {
         var store = new WindowStateStore(new RecordingLogger<WindowStateStore>(), FilePath);
-        store.Save(new WindowPlacement(123.4, -56.8, 4));
-        Assert.Equal(new WindowPlacement(123.4, -56.8, 4), store.Load());
+        store.Save(new WindowPlacement(123.4, -56.8, 4, "pixel-girl"));
+        Assert.Equal(new WindowPlacement(123.4, -56.8, 4, "pixel-girl"), store.Load());
     }
 
     [Fact]

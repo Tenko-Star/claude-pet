@@ -27,4 +27,11 @@
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Built-in character packages: characters/<id>/ next to the executable. -->
+    <None Include="..\..\assets\runtime\**\*" LinkBase="characters\pixel-girl" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="BuiltInCharacters\**" />
+    <None Include="BuiltInCharacters\**\*" LinkBase="characters" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

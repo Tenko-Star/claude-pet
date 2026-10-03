@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,8 +8,10 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using DeskPet.App.Animation;
+using DeskPet.App.Characters;
 using DeskPet.App.Rendering;
 using DeskPet.App.Windowing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StatusHub.Contracts;
 
@@ -16,32 +19,47 @@ namespace DeskPet.App;
 
 /// <summary>
 /// Transparent, borderless, topmost window that shows the character. All animation decisions
-/// live in <see cref="PetController"/> and <see cref="SpritePlayer"/>; this class only renders and handles input.
+/// live in <see cref="PetController"/> and <see cref="SpritePlayer"/>; this class renders, handles input
+/// and swaps the loaded character when the user picks another one or its files change on disk.
 /// </summary>
 public partial class MainWindow : Window
 {
     private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromMinutes(1);
 
-    private readonly PetController _pet;
-    private readonly SpriteLibrary _sprites;
+    private readonly CharacterCatalog _catalog;
+    private readonly PetSessionFactory _sessionFactory;
     private readonly WindowStateStore _stateStore;
+    private readonly AutoStart _autoStart;
+    private readonly ILogger<MainWindow> _logger;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly DispatcherTimer _timer;
-    private readonly MenuItem _talkItem;
     private readonly List<MenuItem> _scaleItems = [];
+    private readonly MenuItem _characterMenu = new() { Header = "角色" };
+    private readonly MenuItem _autoStartItem = new() { Header = "开机自启", IsCheckable = true };
 
+    private PetSession _session;
     private int _scale;
     private DpiScale _dpi = new(1, 1);
     private IReadOnlyList<SpritePlacement>? _shownSprites;
 
-    public MainWindow(PetController pet, SpriteLibrary sprites, WindowStateStore stateStore, IOptions<DeskPetOptions> options)
+    /// <exception cref="InvalidDataException">No character could be loaded.</exception>
+    public MainWindow(
+        CharacterCatalog catalog,
+        PetSessionFactory sessionFactory,
+        WindowStateStore stateStore,
+        AutoStart autoStart,
+        IOptions<DeskPetOptions> options,
+        ILogger<MainWindow> logger)
     {
         InitializeComponent();
-        _pet = pet;
-        _sprites = sprites;
+        _catalog = catalog;
+        _sessionFactory = sessionFactory;
         _stateStore = stateStore;
+        _autoStart = autoStart;
+        _logger = logger;
 
         var saved = _stateStore.Load();
+        _session = LoadInitialSession(saved?.Character);
         _scale = WindowGeometry.ClampScale(saved?.Scale ?? options.Value.Scale);
         if (saved is not null)
         {
@@ -52,9 +70,11 @@ public partial class MainWindow : Window
         _timer = new DispatcherTimer(DispatcherPriority.Render, Dispatcher);
         _timer.Tick += (_, _) => RenderFrame();
 
-        _talkItem = new MenuItem { Header = "说话", IsCheckable = true };
-        _talkItem.Click += (_, _) => SetTalking(_talkItem.IsChecked);
+        _autoStartItem.Click += (_, _) => SetAutoStart(_autoStartItem.IsChecked);
         ContextMenu = BuildContextMenu();
+
+        _catalog.Changed += (_, e) => Dispatcher.InvokeAsync(() => OnCatalogChanged(e.Ids));
+        _catalog.StartWatching();
 
         SourceInitialized += (_, _) => OnSourceInitialized(saved);
         MouseLeftButtonDown += OnMouseLeftButtonDown;
@@ -63,9 +83,18 @@ public partial class MainWindow : Window
     /// <summary>Raised when the user picks "退出" from a menu.</summary>
     public event EventHandler? ExitRequested;
 
+    /// <summary>Raised after a different character, or a reloaded version of it, is shown.</summary>
+    public event EventHandler? CharacterChanged;
+
     public int Scale => _scale;
 
-    public bool IsTalking => _pet.IsTalking;
+    public SpriteLibrary Sprites => _session.Sprites;
+
+    public CharacterInfo CurrentCharacter => _session.Character;
+
+    public IReadOnlyList<CharacterInfo> Characters => _catalog.Characters;
+
+    public bool IsAutoStartEnabled => _autoStart.IsEnabled();
 
     public void SetScale(int scale)
     {
@@ -79,30 +108,68 @@ public partial class MainWindow : Window
         SavePlacement();
     }
 
-    public void SetTalking(bool talking)
+    /// <summary>Shows another character from the catalog. Load errors are reported and the current one stays.</summary>
+    public void SwitchCharacter(string id)
     {
-        _pet.SetTalking(talking, _clock.Elapsed);
-        RenderFrame();
+        if (string.Equals(id, _session.Character.Id, StringComparison.OrdinalIgnoreCase) || _catalog.Find(id) is not { } character)
+        {
+            return;
+        }
+        try
+        {
+            ShowSession(_sessionFactory.Create(character, _clock.Elapsed));
+        }
+        catch (Exception ex) when (PetSessionFactory.IsLoadError(ex))
+        {
+            _logger.LogError(ex, "Failed to load character '{Id}' from {Path}.", character.Id, character.Directory);
+            MessageBox.Show($"无法加载角色“{character.Name}”：\n{ex.Message}", "DeskPet", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>Opens the per-user character folder in Explorer, creating it first.</summary>
+    public void OpenCharacterFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(_catalog.UserRoot);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{_catalog.UserRoot}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception)
+        {
+            _logger.LogWarning(ex, "Could not open {Path}.", _catalog.UserRoot);
+        }
+    }
+
+    public void SetAutoStart(bool enabled)
+    {
+        try
+        {
+            _autoStart.Set(enabled, Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "DeskPet.App.exe"));
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+        {
+            _logger.LogWarning(ex, "Could not change the start-at-login setting.");
+        }
     }
 
     /// <summary>Shows the latest aggregated status. Must be called on the UI thread.</summary>
     public void ApplySnapshot(StatusSnapshot snapshot)
     {
-        _pet.ApplySnapshot(snapshot, _clock.Elapsed);
+        _session.Pet.ApplySnapshot(snapshot, _clock.Elapsed);
         RenderFrame();
     }
 
     /// <summary>Plays a one-shot status event. Must be called on the UI thread.</summary>
     public void ApplyEvent(StatusEvent statusEvent)
     {
-        _pet.ApplyEvent(statusEvent, _clock.Elapsed);
+        _session.Pet.ApplyEvent(statusEvent, _clock.Elapsed);
         RenderFrame();
     }
 
     /// <summary>The status stream was lost. Must be called on the UI thread.</summary>
     public void ApplyDisconnected()
     {
-        _pet.ApplyDisconnected(_clock.Elapsed);
+        _session.Pet.ApplyDisconnected(_clock.Elapsed);
         RenderFrame();
     }
 
@@ -120,6 +187,75 @@ public partial class MainWindow : Window
         _timer.Stop();
         SavePlacement();
         base.OnClosing(e);
+    }
+
+    // Saved character, then the default one, then any other; a broken package is skipped.
+    private PetSession LoadInitialSession(string? savedId)
+    {
+        var candidates = new List<CharacterInfo>();
+        foreach (var id in new[] { savedId, CharacterCatalog.DefaultCharacterId })
+        {
+            if (id is not null && _catalog.Find(id) is { } character && !candidates.Contains(character))
+            {
+                candidates.Add(character);
+            }
+        }
+        candidates.AddRange(_catalog.Characters.Where(c => !candidates.Contains(c)));
+
+        foreach (var character in candidates)
+        {
+            try
+            {
+                return _sessionFactory.Create(character, _clock.Elapsed);
+            }
+            catch (Exception ex) when (PetSessionFactory.IsLoadError(ex))
+            {
+                _logger.LogError(ex, "Failed to load character '{Id}' from {Path}.", character.Id, character.Directory);
+            }
+        }
+        throw new InvalidDataException(
+            $"No usable character found in '{_catalog.BuiltInRoot}' or '{_catalog.UserRoot}'.");
+    }
+
+    private void ShowSession(PetSession session)
+    {
+        session.Pet.ContinueFrom(_session.Pet, _clock.Elapsed);
+        _session = session;
+        ApplySize();
+        SavePlacement();
+        CharacterChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // Hot reload: reloads the shown character when its folder changed or it was overridden or removed.
+    private void OnCatalogChanged(IReadOnlySet<string> changedIds)
+    {
+        _catalog.Refresh();
+        var current = _session.Character;
+        var target = _catalog.Find(current.Id);
+        if (target is null)
+        {
+            target = _catalog.Find(CharacterCatalog.DefaultCharacterId) ?? _catalog.Characters.FirstOrDefault();
+            if (target is null)
+            {
+                _logger.LogWarning("Character '{Id}' was removed and no other character is available.", current.Id);
+                return;
+            }
+        }
+        else if (!changedIds.Contains(target.Id) && target == current)
+        {
+            return;
+        }
+
+        try
+        {
+            ShowSession(_sessionFactory.Create(target, _clock.Elapsed));
+            _logger.LogInformation("Reloaded character '{Id}' from {Path}.", target.Id, target.Directory);
+        }
+        catch (Exception ex) when (PetSessionFactory.IsLoadError(ex))
+        {
+            // Often a package that is still being copied; the next change event retries.
+            _logger.LogWarning(ex, "Could not reload character '{Id}'; keeping the current one.", target.Id);
+        }
     }
 
     private void OnSourceInitialized(WindowPlacement? saved)
@@ -166,7 +302,8 @@ public partial class MainWindow : Window
         exitItem.Click += (_, _) => RequestExit();
 
         menu.Items.Add(scaleMenu);
-        menu.Items.Add(_talkItem);
+        menu.Items.Add(_characterMenu);
+        menu.Items.Add(_autoStartItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(exitItem);
         menu.Opened += (_, _) =>
@@ -175,15 +312,37 @@ public partial class MainWindow : Window
             {
                 _scaleItems[i].IsChecked = WindowGeometry.MinScale + i == _scale;
             }
-            _talkItem.IsChecked = _pet.IsTalking;
+            RebuildCharacterMenu();
+            _autoStartItem.IsChecked = IsAutoStartEnabled;
         };
         return menu;
+    }
+
+    private void RebuildCharacterMenu()
+    {
+        _characterMenu.Items.Clear();
+        foreach (var character in _catalog.Characters)
+        {
+            var id = character.Id;
+            var item = new MenuItem
+            {
+                Header = character.Name,
+                IsCheckable = true,
+                IsChecked = string.Equals(id, _session.Character.Id, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => SwitchCharacter(id);
+            _characterMenu.Items.Add(item);
+        }
+        _characterMenu.Items.Add(new Separator());
+        var openItem = new MenuItem { Header = "打开角色目录" };
+        openItem.Click += (_, _) => OpenCharacterFolder();
+        _characterMenu.Items.Add(openItem);
     }
 
     // Sizes the image to the stage so one sprite pixel covers exactly _scale x _scale device pixels.
     private void ApplySize()
     {
-        var manifest = _sprites.Manifest;
+        var manifest = _session.Sprites.Manifest;
         SpriteImage.Width = WindowGeometry.ToDips(manifest.StageWidth * _scale, _dpi.DpiScaleX);
         SpriteImage.Height = WindowGeometry.ToDips(manifest.StageHeight * _scale, _dpi.DpiScaleY);
         _shownSprites = null;
@@ -195,11 +354,11 @@ public partial class MainWindow : Window
     {
         _timer.Stop();
         var now = _clock.Elapsed;
-        var frame = _pet.Evaluate(now);
+        var frame = _session.Pet.Evaluate(now);
 
         if (_shownSprites is null || !_shownSprites.SequenceEqual(frame.Sprites))
         {
-            var scaled = PixelCompositor.ScaleNearest(_sprites.Compose(frame.Sprites), _scale);
+            var scaled = PixelCompositor.ScaleNearest(_session.Sprites.Compose(frame.Sprites), _scale);
             // Bitmap DPI matches the monitor so the image maps 1:1 onto device pixels.
             var bitmap = BitmapSource.Create(
                 scaled.Width, scaled.Height, 96 * _dpi.DpiScaleX, 96 * _dpi.DpiScaleY,
@@ -231,7 +390,7 @@ public partial class MainWindow : Window
     {
         if (!double.IsNaN(Left) && !double.IsNaN(Top))
         {
-            _stateStore.Save(new WindowPlacement(Left, Top, _scale));
+            _stateStore.Save(new WindowPlacement(Left, Top, _scale, _session.Character.Id));
         }
     }
 }

@@ -49,9 +49,18 @@ public sealed class PetController
 
     public SpritePlayer Player => _player;
 
-    public bool IsTalking => _player.IsTalking;
-
-    public void SetTalking(bool talking, TimeSpan now) => _player.SetTalking(talking, now);
+    /// <summary>
+    /// Takes over the status of the controller of a previously shown character, so switching
+    /// characters keeps the current status, a held error and the sleep countdown.
+    /// A done animation in progress is not carried over.
+    /// </summary>
+    public void ContinueFrom(PetController previous, TimeSpan now)
+    {
+        _status = previous._status;
+        _errorHeld = previous._errorHeld;
+        _idleSince = previous._idleSince;
+        Update(now);
+    }
 
     public void ApplySnapshot(StatusSnapshot snapshot, TimeSpan now)
     {
