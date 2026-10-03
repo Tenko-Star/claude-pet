@@ -19,11 +19,14 @@ Everything is native C# on Windows. No Docker.
 
 ```
 assets/                Pixel art assets (read-only, see "Assets")
+installer/             Inno Setup installer script and its Chinese language file
 plugin/                Claude Code plugin that registers the hooks
+scripts/               Service install/uninstall scripts and the installer build script
 src/
   StatusHub.Contracts/ Shared DTOs: hook event payloads, status enum, status snapshot
   StatusHub.Service/   Windows Service: receives hooks, reduces state, broadcasts
   DeskPet.App/         WPF app: transparent always-on-top window that renders the character
+    BuiltInCharacters/ Extra files of built-in character packages (character.json)
 tests/                 Test projects mirroring src/
 ```
 
@@ -31,28 +34,35 @@ If the actual tree differs from this, trust the tree and tell the owner.
 
 ## Architecture
 
-1. Collection: the plugin registers hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop` and `StopFailure`. Each hook forwards its JSON payload to the service over HTTP on localhost. Hook commands must be fast and must never block or fail Claude Code: short timeout, swallow errors, exit 0.
+1. Collection: the plugin registers hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStop`, `Notification`, `Stop` and `StopFailure`. Each hook forwards its JSON payload to the service over HTTP on localhost. Hook commands must be fast and must never block or fail Claude Code: short timeout, swallow errors, exit 0.
 2. Reduction: the service pushes incoming events into a `System.Threading.Channels` channel. A single `BackgroundService` reads it and owns all mutable state, so no locks are needed. State is tracked per `session_id`; stale sessions are expired by timeout. When several sessions are active, the displayed status is chosen by a fixed priority.
 3. Distribution: two kinds of output.
    - Status (latest value wins): the current aggregated snapshot, held as an immutable record and replaced atomically. New clients receive it immediately on connect.
    - Events (fire once): one-shot moments such as "task finished" or "error", broadcast to connected clients.
    Clients connect through a SignalR hub. The WPF app must tolerate the service starting before or after it and reconnect automatically.
 
-Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permission), `done` (one-shot, returns to idle), `error` (one-shot, returns to idle).
+Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permission), `done` (one-shot, returns to idle), `error` (one-shot, returns to idle), `toolFailure` (one-shot, status unchanged).
+
+- `thinking` only covers "prompt received, no tool called yet". From the first `PreToolUse` of a turn the session stays `working` until `Stop`, `StopFailure` or `Notification`, because Claude Code fires no hook while the model writes the next tool call.
+- `working` carries a pace in the snapshot: `active` (a tool is executing, after `PreToolUse`) or `composing` (between tools, after `PostToolUse`, `PostToolUseFailure` or `SubagentStop`). Across sessions the pace is `active` if any working session is active.
+- A composing session with no new `PreToolUse` for `Status:ThinkFallback` (default 45 s) falls back to `thinking`; the service checks every second.
 
 ## Assets
 
-`assets/` is the asset directory and the root of the extracted `pixel-girl` package. Treat it as read-only input; never edit, re-encode or move files there.
+`assets/` is the asset directory. Treat it as read-only input; never edit, re-encode or move files there. The only exception is a change to `assets/runtime/manifest.json` or `assets/preview/*.html` that the owner explicitly asks for; sprite images are never touched.
 
-- `assets/runtime/sprites/*.png`: layer images, all on the same 119x129 canvas, top-left aligned
-- `assets/runtime/manifest.json`: layer order and animation parameters (frame durations, blink timing, talk toggle). This file is the source of truth; never hard-code frame names or timings in C#.
+`assets/runtime/` is the built-in character `claude-girl`: the DeskPet build copies it to `characters\claude-girl\` next to the executable, together with `src/DeskPet.App/BuiltInCharacters/claude-girl/character.json` (display name). User characters live in `%LOCALAPPDATA%\ClaudePet\characters\<id>\` and override a built-in one with the same id.
+
+- `assets/runtime/sprites/*.png`: character layer images on the same 119x129 canvas, top-left aligned, plus `fx_*.png` effect sprites
+- `assets/runtime/manifest.json`: stage size and character offset, layer order, and animation parameters (frame durations, blink timing, states with enter/exit frames, effects, tap rhythm and its paces, reactions). This file is the source of truth; never hard-code frame names or timings in C#.
 - `assets/runtime/pixel-idle.gif`: reference of the finished idle animation
-- `assets/preview/`, `assets/pipeline/`, `assets/source_images/`: tooling and AI source images; not used at runtime and not shipped
+- `assets/preview/`: HTML demos; `state-demo.html` embeds a copy of `manifest.json`, keep the two in sync
+- `assets/pipeline/`, `assets/source_images/`: tooling and AI source images; not used at runtime and not shipped
 
 Rendering rules for the character:
-- Composite layers bottom to top in manifest order: back hair frame, main body, eye patch, mouth patch. Patches contain only changed pixels; everything else is transparent.
+- Composite layers bottom to top in the manifest `layers` order (hair, body, eyes, mouth, fx) onto the manifest stage; character layers sit at `characterOffset`, effect sprites are placed in stage coordinates. Patches contain only changed pixels; everything else is transparent.
 - Scale only by integer factors with nearest-neighbor sampling (`RenderOptions.BitmapScalingMode="NearestNeighbor"`, no layout rounding blur, snap the window to whole device pixels). Never smooth, filter or fractionally scale sprites.
-- New states (thinking, working, transitions) will be added as new layers plus manifest entries. Design the animation player around the manifest so adding a state needs no code change beyond mapping status to animation.
+- The animation player is driven by the manifest: adding or retuning a state needs no code change beyond mapping status to a state name in `PetController`.
 
 ## Environment notes
 
