@@ -1,0 +1,13 @@
+namespace DeskPet.App;
+
+/// <summary>Configuration bound from the <c>DeskPet</c> section of appsettings.json.</summary>
+public sealed class DeskPetOptions
+{
+    public const string SectionName = "DeskPet";
+
+    /// <summary>Default integer scale in device pixels per sprite pixel. A saved scale overrides it.</summary>
+    public int Scale { get; set; } = 3;
+
+    /// <summary>Optional path to the asset package root or its runtime directory. Null means search upward.</summary>
+    public string? AssetRoot { get; set; }
+}
