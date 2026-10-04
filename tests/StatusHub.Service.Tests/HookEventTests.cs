@@ -15,6 +15,16 @@ public sealed class HookEventTests
     }
 
     [Theory]
+    [InlineData("""{"session_id":"s1","agent_id":"a1"}""", "a1")]
+    [InlineData("""{"session_id":"s1"}""", null)]
+    [InlineData("""{"session_id":"s1","agent_id":""}""", null)]
+    [InlineData("""{"session_id":"s1","agent_id":42}""", null)]
+    public void TryParse_ReadsNonEmptyAgentId(string body, string? expected)
+    {
+        Assert.Equal(expected, HookEvent.TryParse("PreToolUse", body, T0)?.AgentId);
+    }
+
+    [Theory]
     [InlineData("{not json")]
     [InlineData("""{"tool_name":"Bash"}""")]
     [InlineData("""{"session_id":""}""")]
