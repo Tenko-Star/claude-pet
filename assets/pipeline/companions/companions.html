@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 伴随预览</title>
+<style>
+:root{--bg:#e9e6ef;--panel:#f7f5fa;--ink:#2b2633;--mute:#6f6878;--line:#d3cedb;--accent:#d96f12}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1b22;--panel:#26232d;--ink:#ece8f2;--mute:#9a93a5;--line:#3a3644;--accent:#f0913a}}
+:root[data-theme="dark"]{--bg:#1d1b22;--panel:#26232d;--ink:#ece8f2;--mute:#9a93a5;--line:#3a3644;--accent:#f0913a}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif}
+main{max-width:1280px;margin:0 auto;padding:24px 16px 40px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+h1{font-size:20px;margin:0;grid-column:1/-1}
+.sub{grid-column:1/-1;margin:0;color:var(--mute);max-width:80ch}
+.stagecol{display:flex;flex-direction:column;gap:10px;min-width:0}
+.scroll{max-width:100%;overflow:auto;border-radius:4px;border:1px solid var(--line);align-self:flex-start}
+canvas{display:block;image-rendering:pixelated;cursor:pointer}
+aside{display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.panel h2{font-size:14px;margin:0;color:var(--mute);font-weight:600}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.grid button{text-align:left;line-height:1.3}
+.grid button small{display:block;color:var(--mute);font-size:12px}
+.grid button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid button[aria-pressed="true"] small{color:#fff;opacity:.85}
+button{font:inherit;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:4px 10px;border-radius:4px;cursor:pointer}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label{display:inline-flex;gap:4px;align-items:center;cursor:pointer}
+output{display:inline-block;min-width:1.5em;text-align:center;font-weight:600;font-variant-numeric:tabular-nums}
+input[type="color"]{width:32px;height:24px;padding:0;border:1px solid var(--line);background:none}
+.hint{font-size:13px;color:var(--mute);margin:0}
+pre{margin:0;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-height:5em;white-space:pre;overflow-x:auto}
+#error{color:#c0392b;margin:0}
+.orows{display:flex;flex-direction:column;gap:6px}
+.orow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 8px;border:1px solid var(--line);border-radius:4px}
+.orow[data-empty="true"]{opacity:.5}
+.orow .name{display:inline-flex;align-items:center;gap:6px;min-width:6.5em}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.35)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Agent 伴随预览</h1>
+  <p class="sub">每个正在运行的主 agent 是桌宠身边的一个橘子；每个 sub-agent 是一个小球，不管属于哪个橘子，都排在桌宠头顶的弧上，颜色跟随所属的橘子。点击小球让它完成，Shift+点击让它出错，点击出错的小球或橘子把它清掉；鼠标停在橘子上会高亮它的小球。</p>
+
+  <div class="stagecol">
+    <p id="error" role="alert"></p>
+    <div class="scroll"><canvas id="stage"></canvas></div>
+    <pre id="debug" aria-label="实例列表"></pre>
+  </div>
+
+  <aside>
+    <section class="panel" aria-label="主 agent">
+      <h2>主 agent（桌宠）</h2>
+      <div class="grid" id="states"></div>
+      <span class="hint">工作中节奏</span>
+      <div class="grid" id="paces"></div>
+      <button type="button" id="fail">模拟工具失败 <small class="hint">PostToolUseFailure</small></button>
+      <label><input type="checkbox" id="auto" checked>按一次典型任务的顺序自动播放</label>
+    </section>
+
+    <section class="panel" aria-label="伴随">
+      <h2>伴随</h2>
+      <div class="row">
+        <span>主 agent 橘子</span>
+        <button type="button" id="orange-minus" aria-label="移除一个橘子">−</button>
+        <output id="orange-count">0</output>
+        <button type="button" id="orange-plus" aria-label="增加一个橘子">+</button>
+      </div>
+      <div id="orange-rows" class="orows"></div>
+      <div class="row">
+        <button type="button" id="burst">Burst <small class="hint">同一刻 3–6 个小球</small></button>
+        <button type="button" id="serial">快速串行 <small class="hint">6 个短命小球</small></button>
+      </div>
+      <label><input type="checkbox" id="churn">随机增减（约 80% 完成 / 20% 出错）</label>
+    </section>
+
+    <section class="panel" aria-label="显示">
+      <h2>显示</h2>
+      <div class="row">
+        <span>缩放</span>
+        <label><input type="radio" name="scale" value="1">1x</label>
+        <label><input type="radio" name="scale" value="2" checked>2x</label>
+        <label><input type="radio" name="scale" value="3">3x</label>
+        <label><input type="radio" name="scale" value="4">4x</label>
+      </div>
+      <div class="row">
+        <span>背景</span>
+        <label><input type="radio" name="bg" value="dark" checked>深色</label>
+        <label><input type="radio" name="bg" value="light">浅色</label>
+        <label><input type="radio" name="bg" value="checker">棋盘格</label>
+        <label><input type="radio" name="bg" value="custom">自定义</label>
+        <input type="color" id="bg-color" value="#3a6b4f" aria-label="自定义背景色">
+      </div>
+      <label><input type="checkbox" id="shadow">外描边阴影</label>
+    </section>
+  </aside>
+</main>
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>
