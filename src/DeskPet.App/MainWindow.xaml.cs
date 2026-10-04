@@ -187,6 +187,24 @@ public partial class MainWindow : Window
 
     public void RequestExit() => ExitRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>
+    /// Brings a lost pet back: restores it from minimized, shows it on the current virtual desktop, makes it topmost
+    /// again and moves it onto a screen if it is off every screen.
+    /// </summary>
+    public void BringBack()
+    {
+        // Windows places a window that is shown again on the current virtual desktop.
+        Hide();
+        WindowState = WindowState.Normal;
+        Show();
+        // Setting Topmost to its current value does nothing, so toggle it to put the window on top again.
+        Topmost = false;
+        Topmost = true;
+        MoveOnScreen(Left, Top);
+        SnapPosition();
+        SavePlacement();
+    }
+
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
         base.OnDpiChanged(oldDpi, newDpi);
@@ -277,20 +295,36 @@ public partial class MainWindow : Window
     {
         _dpi = VisualTreeHelper.GetDpi(this);
         ApplySize();
+        if (saved is null)
+        {
+            MoveToDefaultPosition();
+        }
+        else
+        {
+            MoveOnScreen(saved.Left, saved.Top);
+        }
+        SnapPosition();
+    }
 
-        var width = SpriteImage.Width;
-        var height = SpriteImage.Height;
-        var onScreen = saved is not null && WindowGeometry.IsVisible(
-            saved.Left, saved.Top, width, height,
+    // Keeps the position when enough of the window would be on a screen, otherwise uses the default position.
+    private void MoveOnScreen(double left, double top)
+    {
+        var onScreen = WindowGeometry.IsVisible(
+            left, top, SpriteImage.Width, SpriteImage.Height,
             SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         if (!onScreen)
         {
-            var work = SystemParameters.WorkArea;
-            Left = work.Right - width - 24;
-            Top = work.Bottom - height;
+            MoveToDefaultPosition();
         }
-        SnapPosition();
+    }
+
+    // Bottom right of the primary screen's work area.
+    private void MoveToDefaultPosition()
+    {
+        var work = SystemParameters.WorkArea;
+        Left = work.Right - SpriteImage.Width - 24;
+        Top = work.Bottom - SpriteImage.Height;
     }
 
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

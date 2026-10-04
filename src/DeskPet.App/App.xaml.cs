@@ -11,12 +11,26 @@ namespace DeskPet.App;
 
 public partial class App : Application
 {
+    // Per user session. The first process creates it; later ones signal it and exit.
+    private const string BringBackEventName = @"Local\ClaudePet.DeskPet.BringBack";
+
     private IHost? _host;
     private TrayIcon? _tray;
+    private EventWaitHandle? _bringBackSignal;
+    private RegisteredWaitHandle? _bringBackWait;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Single instance: a second start brings the running pet back instead of showing another one.
+        _bringBackSignal = new EventWaitHandle(false, EventResetMode.AutoReset, BringBackEventName, out var createdNew);
+        if (!createdNew)
+        {
+            _bringBackSignal.Set();
+            Shutdown();
+            return;
+        }
 
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -57,12 +71,16 @@ public partial class App : Application
         window.ExitRequested += async (_, _) => await ExitAsync();
         MainWindow = window;
         window.Show();
+        _bringBackWait = ThreadPool.RegisterWaitForSingleObject(
+            _bringBackSignal, (_, _) => window.Dispatcher.InvokeAsync(window.BringBack), null, Timeout.Infinite, executeOnlyOnce: false);
 
         await _host.StartAsync();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _bringBackWait?.Unregister(null);
+        _bringBackSignal?.Dispose();
         _tray?.Dispose();
         _host?.Dispose();
         base.OnExit(e);

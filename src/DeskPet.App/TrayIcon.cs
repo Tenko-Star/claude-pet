@@ -4,7 +4,10 @@ using Forms = System.Windows.Forms;
 
 namespace DeskPet.App;
 
-/// <summary>Notification-area icon with the same scale, character, autostart and exit actions as the window menu.</summary>
+/// <summary>
+/// Notification-area icon with the same scale, character, autostart and exit actions as the window menu.
+/// A left click brings the pet back when it got lost.
+/// </summary>
 public sealed class TrayIcon : IDisposable
 {
     private readonly MainWindow _window;
@@ -45,6 +48,13 @@ public sealed class TrayIcon : IDisposable
             Text = "DeskPet",
             ContextMenuStrip = menu,
             Icon = _icon,
+        };
+        _notifyIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == Forms.MouseButtons.Left)
+            {
+                window.BringBack();
+            }
         };
         _notifyIcon.Visible = true;
     }
