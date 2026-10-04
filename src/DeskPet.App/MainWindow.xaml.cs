@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using DeskPet.App.Animation;
 using DeskPet.App.Characters;
+using DeskPet.App.Companions;
 using DeskPet.App.Rendering;
 using DeskPet.App.Windowing;
 using Microsoft.Extensions.Logging;
@@ -18,9 +19,10 @@ using StatusHub.Contracts;
 namespace DeskPet.App;
 
 /// <summary>
-/// Transparent, borderless, topmost window that shows the character. All animation decisions
-/// live in <see cref="PetController"/> and <see cref="SpritePlayer"/>; this class renders, handles input
-/// and swaps the loaded character when the user picks another one or its files change on disk.
+/// Transparent, borderless, topmost window that shows the character and its companions. All animation decisions
+/// live in <see cref="PetController"/>, <see cref="SpritePlayer"/> and <see cref="CompanionPlayer"/>; this class
+/// renders, handles input and swaps the loaded character when the user picks another one or its files change on disk.
+/// The image is the manifest stage plus the room the companions need around it.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -37,10 +39,14 @@ public partial class MainWindow : Window
     private readonly MenuItem _characterMenu = new() { Header = "角色" };
     private readonly MenuItem _autoStartItem = new() { Header = "开机自启", IsCheckable = true };
 
+    private readonly CompanionPlayer _companions;
+
     private PetSession _session;
+    private PixelRect _padding;
     private int _scale;
     private DpiScale _dpi = new(1, 1);
     private IReadOnlyList<SpritePlacement>? _shownSprites;
+    private IReadOnlyList<CompanionDraw>? _shownCompanions;
 
     /// <exception cref="InvalidDataException">No character could be loaded.</exception>
     public MainWindow(
@@ -60,6 +66,10 @@ public partial class MainWindow : Window
 
         var saved = _stateStore.Load();
         _session = LoadInitialSession(saved?.Character);
+        var layout = MeasureLayout(_session.Sprites);
+        _padding = layout.Padding(_session.Sprites.Manifest.StageWidth, _session.Sprites.Manifest.StageHeight);
+        _companions = new CompanionPlayer(
+            CompanionArt.Load(Path.Combine(AppContext.BaseDirectory, CompanionArt.DirectoryName)), layout, _clock.Elapsed);
         _scale = WindowGeometry.ClampScale(saved?.Scale ?? options.Value.Scale);
         if (saved is not null)
         {
@@ -152,10 +162,11 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Shows the latest aggregated status. Must be called on the UI thread.</summary>
+    /// <summary>Shows the latest aggregated status and the active sessions. Must be called on the UI thread.</summary>
     public void ApplySnapshot(StatusSnapshot snapshot)
     {
         _session.Pet.ApplySnapshot(snapshot, _clock.Elapsed);
+        _companions.Sync(snapshot.Sessions, _clock.Elapsed);
         RenderFrame();
     }
 
@@ -170,6 +181,7 @@ public partial class MainWindow : Window
     public void ApplyDisconnected()
     {
         _session.Pet.ApplyDisconnected(_clock.Elapsed);
+        _companions.Clear(_clock.Elapsed);
         RenderFrame();
     }
 
@@ -221,6 +233,9 @@ public partial class MainWindow : Window
     {
         session.Pet.ContinueFrom(_session.Pet, _clock.Elapsed);
         _session = session;
+        var layout = MeasureLayout(session.Sprites);
+        _padding = layout.Padding(session.Sprites.Manifest.StageWidth, session.Sprites.Manifest.StageHeight);
+        _companions.SetLayout(layout, _clock.Elapsed);
         ApplySize();
         SavePlacement();
         CharacterChanged?.Invoke(this, EventArgs.Empty);
@@ -339,12 +354,19 @@ public partial class MainWindow : Window
         _characterMenu.Items.Add(openItem);
     }
 
+    // The pet's silhouette over every character layer it can show, placed on the manifest stage.
+    private static CompanionLayout MeasureLayout(SpriteLibrary sprites) =>
+        CompanionLayout.Measure(sprites.Manifest.CharacterFiles.Select(file => sprites[file]), sprites.Manifest.CharacterOffset);
+
+    private int ImageWidth => _session.Sprites.Manifest.StageWidth + _padding.Left + _padding.Right;
+
+    private int ImageHeight => _session.Sprites.Manifest.StageHeight + _padding.Top + _padding.Bottom;
+
     // Sizes the image to the stage so one sprite pixel covers exactly _scale x _scale device pixels.
     private void ApplySize()
     {
-        var manifest = _session.Sprites.Manifest;
-        SpriteImage.Width = WindowGeometry.ToDips(manifest.StageWidth * _scale, _dpi.DpiScaleX);
-        SpriteImage.Height = WindowGeometry.ToDips(manifest.StageHeight * _scale, _dpi.DpiScaleY);
+        SpriteImage.Width = WindowGeometry.ToDips(ImageWidth * _scale, _dpi.DpiScaleX);
+        SpriteImage.Height = WindowGeometry.ToDips(ImageHeight * _scale, _dpi.DpiScaleY);
         _shownSprites = null;
         RenderFrame();
         SnapPosition();
@@ -355,10 +377,21 @@ public partial class MainWindow : Window
         _timer.Stop();
         var now = _clock.Elapsed;
         var frame = _session.Pet.Evaluate(now);
+        var companions = _companions.Evaluate(now);
 
-        if (_shownSprites is null || !_shownSprites.SequenceEqual(frame.Sprites))
+        if (_shownSprites is null || !_shownSprites.SequenceEqual(frame.Sprites)
+            || _shownCompanions is null || !_shownCompanions.SequenceEqual(companions.Draws))
         {
-            var scaled = PixelCompositor.ScaleNearest(_session.Sprites.Compose(frame.Sprites), _scale);
+            // The pet stage sits inside the padding; companions draw on top of it.
+            var sprites = _session.Sprites;
+            var layers = frame.Sprites
+                .Select(p =>
+                {
+                    var buffer = sprites[p.File];
+                    return new PlacedBuffer(buffer, p.X + _padding.Left, (p.AlignBottom ? p.Y - buffer.Height : p.Y) + _padding.Top);
+                })
+                .Concat(companions.Draws.Select(d => new PlacedBuffer(d.Buffer, d.X + _padding.Left, d.Y + _padding.Top)));
+            var scaled = PixelCompositor.ScaleNearest(PixelCompositor.ComposePlaced(ImageWidth, ImageHeight, layers), _scale);
             // Bitmap DPI matches the monitor so the image maps 1:1 onto device pixels.
             var bitmap = BitmapSource.Create(
                 scaled.Width, scaled.Height, 96 * _dpi.DpiScaleX, 96 * _dpi.DpiScaleY,
@@ -366,11 +399,13 @@ public partial class MainWindow : Window
             bitmap.Freeze();
             SpriteImage.Source = bitmap;
             _shownSprites = frame.Sprites;
+            _shownCompanions = companions.Draws;
         }
 
-        if (frame.NextChangeAt != TimeSpan.MaxValue)
+        var next = frame.NextChangeAt < companions.NextChangeAt ? frame.NextChangeAt : companions.NextChangeAt;
+        if (next != TimeSpan.MaxValue)
         {
-            var delay = frame.NextChangeAt - _clock.Elapsed;
+            var delay = next - _clock.Elapsed;
             _timer.Interval = delay <= TimeSpan.Zero ? TimeSpan.FromMilliseconds(1) : delay < MaxTimerDelay ? delay : MaxTimerDelay;
             _timer.Start();
         }

@@ -37,12 +37,13 @@ If the actual tree differs from this, trust the tree and tell the owner.
 1. Collection: the plugin registers hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `Notification`, `Stop` and `StopFailure`. Each hook forwards its JSON payload to the service over HTTP on localhost. Hook commands must be fast and must never block or fail Claude Code: short timeout, swallow errors, exit 0.
 2. Reduction: the service pushes incoming events into a `System.Threading.Channels` channel. A single `BackgroundService` reads it and owns all mutable state, so no locks are needed. State is tracked per `session_id`; stale sessions are expired by timeout. Within a session the main thread and each subagent (by `agent_id`) are tracked separately; the session shows the highest-priority status among them, so background subagents still running after `Stop` keep it `working`. Subagents are expired by their own timeout (`Status:SubagentTimeout`). Only one primary session is displayed and produces one-shot events: the first session to send an event; when it ends (`SessionEnd`) or expires, the most recently active remaining session takes over, otherwise the status is `idle`.
 3. Distribution: two kinds of output.
-   - Status (latest value wins): the current aggregated snapshot, held as an immutable record and replaced atomically. New clients receive it immediately on connect.
+   - Status (latest value wins): the current aggregated snapshot, held as an immutable record and replaced atomically. New clients receive it immediately on connect. It also lists every active session in start order with its failed flag and its running subagents that have an `agent_type` (Claude Code's internal agents have none); the WPF app shows them as companions.
    - Events (fire once): one-shot moments such as "task finished" or "error", broadcast to connected clients.
    Clients connect through a SignalR hub. The WPF app must tolerate the service starting before or after it and reconnect automatically.
 
 Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permission), `done` (one-shot, returns to idle), `error` (one-shot, returns to idle), `toolFailure` (one-shot, status unchanged).
 
+- `Notification` sets `waiting` only for `permission_prompt`, `elicitation_dialog` or no type (older Claude Code); other types such as `idle_prompt` or `agent_completed` change nothing.
 - `thinking` only covers "prompt received, no tool called yet". From the first `PreToolUse` of a turn the session stays `working` until `Stop`, `StopFailure` or `Notification`, because Claude Code fires no hook while the model writes the next tool call.
 - `working` carries a pace in the snapshot: `active` (a tool is executing, after `PreToolUse`) or `composing` (between tools, after `PostToolUse` or `PostToolUseFailure`). Across the primary session's main thread and subagents the pace is `active` if any working one is active.
 - A composing thread (main thread or subagent) with no new `PreToolUse` for `Status:ThinkFallback` (default 45 s) falls back to `thinking`; the service checks every second.
@@ -56,6 +57,7 @@ Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permissi
 - `assets/runtime/sprites/*.png`: character layer images on the same 119x129 canvas, top-left aligned, plus `fx_*.png` effect sprites
 - `assets/runtime/manifest.json`: stage size and character offset, layer order, and animation parameters (frame durations, blink timing, states with enter/exit frames, effects, tap rhythm and its paces, reactions). This file is the source of truth; never hard-code frame names or timings in C#.
 - `assets/runtime/pixel-idle.gif`: reference of the finished idle animation
+- `assets/subagent/orange/*.png`, `assets/subagent/orb/*.png`: companion frames (an orange per active session, an orb per running subagent), shared by every character; the DeskPet build copies them to `companions\` next to the executable
 - `assets/preview/`: HTML demos; `state-demo.html` embeds a copy of `manifest.json`, keep the two in sync
 - `assets/pipeline/`, `assets/source_images/`: tooling and AI source images; not used at runtime and not shipped
 

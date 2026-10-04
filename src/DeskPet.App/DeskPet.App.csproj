@@ -10,6 +10,7 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the notification-area icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>..\..\assets\app_icon\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,10 +29,21 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Notification-area icon; the same file as ApplicationIcon. -->
+    <EmbeddedResource Include="..\..\assets\app_icon\app.ico" LogicalName="DeskPet.App.app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Built-in character packages: characters/<id>/ next to the executable. -->
     <None Include="..\..\assets\runtime\**\*" LinkBase="characters\claude-girl" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="BuiltInCharacters\**" />
     <None Include="BuiltInCharacters\**\*" LinkBase="characters" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Companion frames, shared by every character: companions/orange and companions/orb next to the executable. -->
+    <None Include="..\..\assets\subagent\orange\*.png" LinkBase="companions\orange" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\assets\subagent\orb\*.png" LinkBase="companions\orb" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

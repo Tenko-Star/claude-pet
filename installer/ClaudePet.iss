@@ -2,7 +2,7 @@
 ; artifacts\publish first and then compiles this script with ISCC.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.1"
+  #define AppVersion "0.2.0"
 #endif
 #define AppName "Claude Pet"
 ; Must match ServiceHost.ServiceName.
@@ -28,6 +28,7 @@ OutputBaseFilename=ClaudePet-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\assets\app_icon\app.ico
 UninstallDisplayIcon={app}\DeskPet\{#DeskPetExe}
 ; The start-at-login value lives in HKCU of the installing user on purpose.
 UsedUserAreasWarning=no

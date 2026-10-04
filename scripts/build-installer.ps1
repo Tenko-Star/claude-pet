@@ -8,7 +8,7 @@
     With -Install, the installer is then run without its wizard (UAC asks once) and the pet is started.
 #>
 param(
-    [string]$Version = '0.1.1',
+    [string]$Version = '0.2.0',
     [string]$Runtime = 'win-x64',
     [switch]$Install
 )

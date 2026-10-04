@@ -108,17 +108,26 @@ public sealed class StatusReducerService(
         var status = _reducer.Aggregate();
         var pace = status == ClaudeStatus.Working ? _reducer.AggregatePace() : WorkPace.Active;
         var sessions = _reducer.SessionCount;
+        var list = _reducer.Sessions();
         var current = store.Current;
-        if (current.Status == status && current.Pace == pace && current.ActiveSessions == sessions)
+        if (current.Status == status && current.Pace == pace && current.ActiveSessions == sessions
+            && SameSessions(current.Sessions ?? [], list))
         {
             return;
         }
 
         // Store first, so a client connecting now gets the new value even if it misses the broadcast.
-        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow(), pace);
+        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow(), pace, list);
         store.Current = snapshot;
         await BroadcastAsync(StatusHubProtocol.SnapshotMethod, snapshot, cancellationToken);
     }
+
+    // Records holding lists compare those lists by reference, so compare element by element.
+    private static bool SameSessions(IReadOnlyList<SessionInfo> a, IReadOnlyList<SessionInfo> b) =>
+        a.Count == b.Count
+        && a.Zip(b).All(pair => pair.First.SessionId == pair.Second.SessionId
+            && pair.First.Failed == pair.Second.Failed
+            && pair.First.Subagents.SequenceEqual(pair.Second.Subagents));
 
     private async Task BroadcastAsync(string method, object message, CancellationToken cancellationToken)
     {

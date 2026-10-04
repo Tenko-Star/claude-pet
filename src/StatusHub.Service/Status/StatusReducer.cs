@@ -13,7 +13,10 @@ namespace StatusHub.Service.Status;
 /// Thinking only covers "prompt received, no tool called yet". Once a tool runs, a thread stays Working until
 /// Stop, StopFailure or Notification (main thread) or SubagentStop (subagent): Claude Code fires no hook while the
 /// model writes the next tool call, so the gap between tools is shown as Working with the <see cref="WorkPace.Composing"/> pace.
-/// Notifications of type <c>idle_prompt</c> and <c>auth_success</c> need no action and leave the status unchanged.
+/// Only notifications that need the user (<c>permission_prompt</c>, <c>elicitation_dialog</c>, or no type from older
+/// Claude Code versions) set Waiting; every other type, such as <c>idle_prompt</c> or <c>agent_completed</c> after a
+/// background agent finishes, leaves the status unchanged.
+/// Subagents with an agent type are listed per session in start order; Claude Code's internal agents have none.
 /// Only the primary session is displayed and produces one-shot events. The first session to send an event becomes
 /// primary; when it ends or expires, the most recently active remaining session takes over.
 /// </remarks>
@@ -23,6 +26,9 @@ public sealed class StatusReducer
 
     // Null exactly when there are no sessions.
     private string? _primaryId;
+
+    // Start order of sessions.
+    private long _nextOrder;
 
     public int SessionCount => _sessions.Count;
 
@@ -65,11 +71,12 @@ public sealed class StatusReducer
                     && session.Agents.Remove(e.AgentId))
                 {
                     session.LastActivity = e.ReceivedAt;
+                    session.Subagents.RemoveAll(agent => agent.AgentId == e.AgentId);
                 }
 
                 return null;
             case "Notification":
-                if (e.NotificationType is "idle_prompt" or "auth_success")
+                if (e.NotificationType is not (null or "permission_prompt" or "elicitation_dialog"))
                 {
                     return null;
                 }
@@ -93,12 +100,17 @@ public sealed class StatusReducer
 
         var target = GetOrCreate(e.SessionId, e.ReceivedAt);
         target.LastActivity = e.ReceivedAt;
+        target.Failed = e.EventName == "StopFailure";
 
         var worker = new WorkerState(status, pace, e.ReceivedAt);
         if (e.AgentId is not null
             && e.EventName is ("SubagentStart" or "PreToolUse" or "PostToolUse" or "PostToolUseFailure"))
         {
             target.Agents[e.AgentId] = worker;
+            if (e.AgentType is not null && !target.Subagents.Exists(agent => agent.AgentId == e.AgentId))
+            {
+                target.Subagents.Add(new SubagentInfo(e.AgentId, e.AgentType));
+            }
         }
         else
         {
@@ -159,6 +171,7 @@ public sealed class StatusReducer
                 if (now - agent.LastSeen > subagentTimeout)
                 {
                     session.Agents.Remove(agentId);
+                    session.Subagents.RemoveAll(info => info.AgentId == agentId);
                     removed = true;
                 }
             }
@@ -181,11 +194,18 @@ public sealed class StatusReducer
     /// </summary>
     public WorkPace AggregatePace() => Primary() is { } session ? Effective(session).Pace : WorkPace.Active;
 
+    /// <summary>Every session in start order, with its listed subagents.</summary>
+    public IReadOnlyList<SessionInfo> Sessions() =>
+        _sessions
+            .OrderBy(pair => pair.Value.Order)
+            .Select(pair => new SessionInfo(pair.Key, pair.Value.Failed, pair.Value.Subagents.ToArray()))
+            .ToArray();
+
     private Session GetOrCreate(string id, DateTimeOffset now)
     {
         if (!_sessions.TryGetValue(id, out var session))
         {
-            session = new Session(new WorkerState(ClaudeStatus.Idle, WorkPace.Active, now), now);
+            session = new Session(new WorkerState(ClaudeStatus.Idle, WorkPace.Active, now), now, _nextOrder++);
             _sessions[id] = session;
             _primaryId ??= id;
         }
@@ -245,12 +265,20 @@ public sealed class StatusReducer
     /// <summary>
     /// One session: its main thread, its subagents by agent id, and the time of its last hook event from any thread.
     /// </summary>
-    private sealed class Session(WorkerState main, DateTimeOffset lastActivity)
+    private sealed class Session(WorkerState main, DateTimeOffset lastActivity, long order)
     {
         public WorkerState Main { get; set; } = main;
 
         public Dictionary<string, WorkerState> Agents { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Subagents with an agent type, in start order.</summary>
+        public List<SubagentInfo> Subagents { get; } = [];
+
         public DateTimeOffset LastActivity { get; set; } = lastActivity;
+
+        /// <summary>Last event was StopFailure.</summary>
+        public bool Failed { get; set; }
+
+        public long Order { get; } = order;
     }
 }
