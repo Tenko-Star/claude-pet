@@ -42,6 +42,7 @@ public static class ServiceHost
         builder.Services.AddOptions<StatusOptions>()
             .Bind(builder.Configuration.GetSection(StatusOptions.SectionName))
             .Validate(o => o.SessionTimeout > TimeSpan.Zero, "Status:SessionTimeout must be positive.")
+            .Validate(o => o.SubagentTimeout > TimeSpan.Zero, "Status:SubagentTimeout must be positive.")
             .Validate(o => o.ExpiryScanInterval > TimeSpan.Zero, "Status:ExpiryScanInterval must be positive.")
             .Validate(o => o.ThinkFallback > TimeSpan.Zero, "Status:ThinkFallback must be positive.")
             .ValidateOnStart();

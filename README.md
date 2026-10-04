@@ -11,10 +11,10 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
                                                      127.0.0.1:47821/hooks/<事件>    /hubs/status
 ```
 
-1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SubagentStop`、`Notification`、`Stop`、`StopFailure` 这 10 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
-2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。多个会话同时活跃时按优先级取一个：`Waiting > Working > Thinking > Idle`。
+1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SubagentStart`、`SubagentStop`、`Notification`、`Stop`、`StopFailure` 这 11 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
+2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。每个会话里，主线程和每个子 agent（按 `agent_id` 区分）各自记录状态，会话状态取其中优先级最高的：`Waiting > Working > Thinking > Idle`，所以主线程 `Stop` 后还在跑的后台子 agent 会让会话保持 Working。子 agent 超时（默认 10 分钟）没有事件会被清掉。只显示一个主会话：第一个发来事件的会话成为主会话，其他会话照常记录但不影响显示，也不广播一次性事件；主会话 `SessionEnd` 或超时后，切换到最近有活动的会话，没有其他会话就显示 Idle。
 3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
-   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。多个会话同时 Working 时，只要有一个是 `Active` 就取 `Active`。
+   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。主会话的主线程和子 agent 里只要有一个 Working 的是 `Active` 就取 `Active`。
    - `Event`：一次性事件 `Done`（任务完成）、`Error`（出错）和 `ToolFailure`（工具调用失败），不进入快照。
 
 事件到状态的映射：
@@ -24,12 +24,16 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 | `SessionStart` | Idle |
 | `UserPromptSubmit` | Thinking（本轮还没调用过工具） |
 | `PreToolUse` | Working，节奏 `Active` |
-| `PostToolUse`、`SubagentStop` | Working，节奏 `Composing` |
+| `PostToolUse` | Working，节奏 `Composing` |
 | `PostToolUseFailure` | Working，节奏 `Composing`，并广播 `ToolFailure` 事件 |
+| `SubagentStart` | 该子 agent 进入 Thinking |
+| `SubagentStop` | 移除该子 agent |
 | `Notification` | Waiting |
 | `Stop` | Idle，并广播 `Done` 事件 |
 | `StopFailure` | Idle，并广播 `Error` 事件 |
 | `SessionEnd` | 移除该会话 |
+
+带 `agent_id` 的 `PreToolUse`、`PostToolUse`、`PostToolUseFailure` 只改变对应子 agent 的状态，其他事件都作用于主线程。
 
 Claude Code 在模型生成下一次工具调用参数时没有任何 hook，真正执行工具通常只有几毫秒，所以一轮里第一次调用工具之后，会一直保持 Working，直到 `Stop`、`StopFailure` 或 `Notification`。工具结束后超过 `Status:ThinkFallback`（默认 45 秒）还没有新的 `PreToolUse`，会退回 Thinking，服务每秒检查一次。
 
@@ -244,5 +248,6 @@ dotnet run --project src/StatusHub.Service    # 前台运行服务，日志直�
 | `HookIngest:Port` | `47821` | 监听端口 |
 | `HookIngest:DataDirectory` | 空（`%LOCALAPPDATA%\ClaudePet\hooks`） | hook 日志目录 |
 | `Status:SessionTimeout` | `00:30:00` | 会话多久没有事件就视为过期 |
-| `Status:ExpiryScanInterval` | `00:00:30` | 检查过期会话的间隔 |
+| `Status:SubagentTimeout` | `00:10:00` | 子 agent 多久没有事件就视为过期 |
+| `Status:ExpiryScanInterval` | `00:00:30` | 检查过期会话和子 agent 的间隔 |
 | `Status:ThinkFallback` | `00:00:45` | 工具结束后多久没有新的工具调用就从 Working 退回 Thinking |

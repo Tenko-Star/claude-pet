@@ -87,9 +87,10 @@ public sealed class StatusReducerService(
                         return; // Timer disposed.
                     }
 
-                    if (_reducer.Expire(time.GetUtcNow(), settings.SessionTimeout))
+                    if (_reducer.Expire(time.GetUtcNow(), settings.SessionTimeout, settings.SubagentTimeout))
                     {
-                        logger.LogInformation("Expired stale sessions; {Count} remain", _reducer.SessionCount);
+                        logger.LogInformation(
+                            "Expired stale sessions or subagents; {Count} sessions remain", _reducer.SessionCount);
                         await PublishIfChangedAsync(stoppingToken);
                     }
 

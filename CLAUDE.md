@@ -34,8 +34,8 @@ If the actual tree differs from this, trust the tree and tell the owner.
 
 ## Architecture
 
-1. Collection: the plugin registers hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStop`, `Notification`, `Stop` and `StopFailure`. Each hook forwards its JSON payload to the service over HTTP on localhost. Hook commands must be fast and must never block or fail Claude Code: short timeout, swallow errors, exit 0.
-2. Reduction: the service pushes incoming events into a `System.Threading.Channels` channel. A single `BackgroundService` reads it and owns all mutable state, so no locks are needed. State is tracked per `session_id`; stale sessions are expired by timeout. When several sessions are active, the displayed status is chosen by a fixed priority.
+1. Collection: the plugin registers hooks for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `Notification`, `Stop` and `StopFailure`. Each hook forwards its JSON payload to the service over HTTP on localhost. Hook commands must be fast and must never block or fail Claude Code: short timeout, swallow errors, exit 0.
+2. Reduction: the service pushes incoming events into a `System.Threading.Channels` channel. A single `BackgroundService` reads it and owns all mutable state, so no locks are needed. State is tracked per `session_id`; stale sessions are expired by timeout. Within a session the main thread and each subagent (by `agent_id`) are tracked separately; the session shows the highest-priority status among them, so background subagents still running after `Stop` keep it `working`. Subagents are expired by their own timeout (`Status:SubagentTimeout`). Only one primary session is displayed and produces one-shot events: the first session to send an event; when it ends (`SessionEnd`) or expires, the most recently active remaining session takes over, otherwise the status is `idle`.
 3. Distribution: two kinds of output.
    - Status (latest value wins): the current aggregated snapshot, held as an immutable record and replaced atomically. New clients receive it immediately on connect.
    - Events (fire once): one-shot moments such as "task finished" or "error", broadcast to connected clients.
@@ -44,8 +44,8 @@ If the actual tree differs from this, trust the tree and tell the owner.
 Statuses: `idle`, `thinking`, `working`, `waiting` (needs user input or permission), `done` (one-shot, returns to idle), `error` (one-shot, returns to idle), `toolFailure` (one-shot, status unchanged).
 
 - `thinking` only covers "prompt received, no tool called yet". From the first `PreToolUse` of a turn the session stays `working` until `Stop`, `StopFailure` or `Notification`, because Claude Code fires no hook while the model writes the next tool call.
-- `working` carries a pace in the snapshot: `active` (a tool is executing, after `PreToolUse`) or `composing` (between tools, after `PostToolUse`, `PostToolUseFailure` or `SubagentStop`). Across sessions the pace is `active` if any working session is active.
-- A composing session with no new `PreToolUse` for `Status:ThinkFallback` (default 45 s) falls back to `thinking`; the service checks every second.
+- `working` carries a pace in the snapshot: `active` (a tool is executing, after `PreToolUse`) or `composing` (between tools, after `PostToolUse` or `PostToolUseFailure`). Across the primary session's main thread and subagents the pace is `active` if any working one is active.
+- A composing thread (main thread or subagent) with no new `PreToolUse` for `Status:ThinkFallback` (default 45 s) falls back to `thinking`; the service checks every second.
 
 ## Assets
 
