@@ -10,6 +10,7 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the notification-area icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>..\..\assets\app_icon\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +26,11 @@
 
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Notification-area icon; the same file as ApplicationIcon. -->
+    <EmbeddedResource Include="..\..\assets\app_icon\app.ico" LogicalName="DeskPet.App.app.ico" />
   </ItemGroup>
 
   <ItemGroup>
