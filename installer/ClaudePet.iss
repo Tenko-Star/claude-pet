@@ -2,7 +2,7 @@
 ; artifacts\publish first and then compiles this script with ISCC.
 
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.2.1"
 #endif
 #define AppName "Claude Pet"
 ; Must match ServiceHost.ServiceName.
