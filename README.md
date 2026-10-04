@@ -14,7 +14,7 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SubagentStart`、`SubagentStop`、`Notification`、`Stop`、`StopFailure` 这 11 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
 2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。每个会话里，主线程和每个子 agent（按 `agent_id` 区分）各自记录状态，会话状态取其中优先级最高的：`Waiting > Working > Thinking > Idle`，所以主线程 `Stop` 后还在跑的后台子 agent 会让会话保持 Working。子 agent 超时（默认 10 分钟）没有事件会被清掉。只显示一个主会话：第一个发来事件的会话成为主会话，其他会话照常记录但不影响显示，也不广播一次性事件；主会话 `SessionEnd` 或超时后，切换到最近有活动的会话，没有其他会话就显示 Idle。
 3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
-   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。主会话的主线程和子 agent 里只要有一个 Working 的是 `Active` 就取 `Active`。
+   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。主会话的主线程和子 agent 里只要有一个 Working 的是 `Active` 就取 `Active`。快照还带有 `Sessions`：所有活动会话（按开始顺序）、每个会话最后一轮是否以 `StopFailure` 结束且之后没有新动作（`Failed`），以及它正在运行的子 agent（`agentId`、`agentType`，按开始顺序）。`agent_type` 为空的是 Claude Code 内部的 agent，计入状态但不列出。
    - `Event`：一次性事件 `Done`（任务完成）、`Error`（出错）和 `ToolFailure`（工具调用失败），不进入快照。
 
 事件到状态的映射：
@@ -26,9 +26,9 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 | `PreToolUse` | Working，节奏 `Active` |
 | `PostToolUse` | Working，节奏 `Composing` |
 | `PostToolUseFailure` | Working，节奏 `Composing`，并广播 `ToolFailure` 事件 |
-| `SubagentStart` | 该子 agent 进入 Thinking |
+| `SubagentStart` | 该子 agent 进入 Thinking；有 `agent_type` 的加入会话的子 agent 列表 |
 | `SubagentStop` | 移除该子 agent |
-| `Notification` | Waiting |
+| `Notification` | `permission_prompt`、`elicitation_dialog` 或没有类型（旧版 Claude Code）时 Waiting；其他类型（如 `idle_prompt`、后台 agent 完成后的 `agent_completed`）不改变状态 |
 | `Stop` | Idle，并广播 `Done` 事件 |
 | `StopFailure` | Idle，并广播 `Error` 事件 |
 | `SessionEnd` | 移除该会话 |
@@ -187,6 +187,12 @@ dotnet run --project src/DeskPet.App
 | `Error` 事件 | error，一直停留到下一次提交提示词 |
 | `ToolFailure` 事件 | 只在 think / working 时闪一下汗珠，不切换状态 |
 | 空闲超过 5 分钟 | sleep |
+
+桌宠身边还有伴随（素材在 `assets/subagent/`，编译时复制到程序目录下的 `companions\`）：
+
+- 每个活动会话是一个橘子，最多 4 个，按左下、右下、左上、右上排在桌宠身体两侧；会话结束时开心地跳一下后像素溶解。会话最后一轮以 `StopFailure` 结束时橘子显示错误表情，会话有新动作后恢复。
+- 每个子 agent 是一个小球，从所属的橘子飞到桌宠头顶的弧上，每弧 8 个，超过就排到更高一层；颜色按所属橘子区分（原色、蓝、绿、紫）。子 agent 结束时开心地跳一下后溶解。
+- 窗口在角色舞台四周留出伴随需要的空间，透明区域不接收鼠标。伴随的位置按当前角色图像的轮廓自动计算。
 
 切换节奏：每个状态至少显示 500 毫秒，之后还要等当前这一轮动画走完（进入帧、一串敲击、弹出动画或一圈循环特效）才切。等待期间收到的状态只保留最新的一个，快速变化时会直接跳到最终状态。
 

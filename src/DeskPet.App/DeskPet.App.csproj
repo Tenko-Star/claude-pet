@@ -40,4 +40,10 @@
     <None Include="BuiltInCharacters\**\*" LinkBase="characters" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Companion frames, shared by every character: companions/orange and companions/orb next to the executable. -->
+    <None Include="..\..\assets\subagent\orange\*.png" LinkBase="companions\orange" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\assets\subagent\orb\*.png" LinkBase="companions\orb" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
