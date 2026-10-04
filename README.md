@@ -62,10 +62,10 @@ tests/                     与 src/ 对应的测试项目
 推荐的安装方式。构建安装包需要 .NET 10 SDK 和 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install JRSoftware.InnoSetup`），不需要管理员权限：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.2.0
 ```
 
-产物是 `artifacts\installer\ClaudePet-Setup-0.1.1.exe`。两个程序都自带 .NET 运行时，目标机器不用另装。运行安装包需要管理员权限，它会：
+产物是 `artifacts\installer\ClaudePet-Setup-0.2.0.exe`。两个程序都自带 .NET 运行时，目标机器不用另装。运行安装包需要管理员权限，它会：
 
 1. 安装后台服务和桌宠，并注册 `ClaudePetStatusHub` 服务（开机自动启动，崩溃后 5 秒重启）；
 2. 以当前用户身份注册 Claude Code 插件（本机没有 `claude` 命令时会提示手动注册的命令）；
