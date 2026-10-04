@@ -166,7 +166,7 @@ public partial class MainWindow : Window
     public void ApplySnapshot(StatusSnapshot snapshot)
     {
         _session.Pet.ApplySnapshot(snapshot, _clock.Elapsed);
-        _companions.Sync(snapshot.Sessions, _clock.Elapsed);
+        _companions.Sync(snapshot.Sessions, snapshot.PrimarySessionId, _clock.Elapsed);
         RenderFrame();
     }
 

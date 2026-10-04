@@ -17,8 +17,8 @@ public enum CompanionFrame
 }
 
 /// <summary>
-/// Decoded companion frames. Oranges keep their colors; orbs get one palette variant per orange slot
-/// (original, blue, green, purple) so an orb shows which orange it belongs to.
+/// Decoded companion frames. Oranges keep their colors; orbs get one palette variant per group: the primary
+/// session's orbs keep the original colors, the orbs of orange slots 0..2 are blue, green and purple.
 /// </summary>
 /// <param name="Orange">Orange frames indexed by <see cref="CompanionFrame"/>.</param>
 /// <param name="Orbs">Orb frames per variant, indexed by <see cref="CompanionFrame"/> up to Blink.</param>

@@ -7,13 +7,13 @@ public readonly record struct Extent(int Left, int Right, int Top, int Bottom);
 
 /// <summary>
 /// Where companions go around the pet, in pet-stage pixels (the manifest stage). Oranges stand beside the pet's
-/// body, left-low, right-low, left-high, right-high; orbs sit on shallow arcs above the head, eight per arc.
+/// body, left-low, right-low, left-high; orbs sit on shallow arcs above the head, eight per arc.
 /// </summary>
 /// <param name="Body">Inclusive bounds of every character layer the pet can show, including the hair swing.</param>
 /// <param name="HeadTop">Middle of the topmost opaque row.</param>
 public sealed record CompanionLayout(PixelRect Body, PixelPoint HeadTop)
 {
-    public const int MaxOranges = 4;
+    public const int MaxOranges = 3;
     public const int MaxOrbsPerOrange = 8;
 
     /// <summary>Body centers inside the frames (32x32 orange, 24x24 orb) and their extents.</summary>
@@ -71,7 +71,7 @@ public sealed record CompanionLayout(PixelRect Body, PixelPoint HeadTop)
             new PixelPoint((headLeft + headRight) / 2 + offset.X, top + offset.Y));
     }
 
-    /// <summary>Fixed center of the orange in slot <paramref name="index"/> (0..3).</summary>
+    /// <summary>Fixed center of the orange in slot <paramref name="index"/> (0..2).</summary>
     public PixelPoint OrangeSlot(int index)
     {
         var x = index % 2 == 0
@@ -115,7 +115,8 @@ public sealed record CompanionLayout(PixelRect Body, PixelPoint HeadTop)
             top = Math.Min(top, c.Y - OrangeExtent.Top);
             bottom = Math.Max(bottom, c.Y + OrangeExtent.Bottom);
         }
-        foreach (var c in ArcSlots(MaxOranges * MaxOrbsPerOrange))
+        // One orb group per orange plus the primary session's group.
+        foreach (var c in ArcSlots((MaxOranges + 1) * MaxOrbsPerOrange))
         {
             left = Math.Min(left, c.X - OrbExtent.Left);
             right = Math.Max(right, c.X + OrbExtent.Right);

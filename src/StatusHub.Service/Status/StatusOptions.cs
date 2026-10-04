@@ -15,4 +15,7 @@ public sealed class StatusOptions
 
     /// <summary>A Working session with no new tool call for this long after its last tool ended shows Thinking again.</summary>
     public TimeSpan ThinkFallback { get; set; } = TimeSpan.FromSeconds(45);
+
+    /// <summary>An Idle primary session hands over to an active session after this long.</summary>
+    public TimeSpan PrimaryIdleRebind { get; set; } = TimeSpan.FromMinutes(3);
 }

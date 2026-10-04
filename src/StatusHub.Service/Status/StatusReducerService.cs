@@ -17,7 +17,10 @@ public sealed class StatusReducerService(
     TimeProvider time,
     ILogger<StatusReducerService> logger) : BackgroundService
 {
-    /// <summary>How often Composing sessions are checked against <see cref="StatusOptions.ThinkFallback"/>.</summary>
+    /// <summary>
+    /// How often Composing sessions are checked against <see cref="StatusOptions.ThinkFallback"/> and an Idle primary
+    /// against <see cref="StatusOptions.PrimaryIdleRebind"/>.
+    /// </summary>
     public static readonly TimeSpan FallbackCheckInterval = TimeSpan.FromSeconds(1);
 
     private readonly StatusReducer _reducer = new();
@@ -61,6 +64,7 @@ public sealed class StatusReducerService(
                             await BroadcastAsync(StatusHubProtocol.EventMethod, oneShot, stoppingToken);
                         }
 
+                        _reducer.RebindIdlePrimary(time.GetUtcNow(), settings.PrimaryIdleRebind);
                         await PublishIfChangedAsync(stoppingToken);
                     }
 
@@ -73,7 +77,9 @@ public sealed class StatusReducerService(
                         return; // Timer disposed.
                     }
 
-                    if (_reducer.FallBackToThinking(time.GetUtcNow(), settings.ThinkFallback))
+                    var now = time.GetUtcNow();
+                    var fellBack = _reducer.FallBackToThinking(now, settings.ThinkFallback);
+                    if (_reducer.RebindIdlePrimary(now, settings.PrimaryIdleRebind) || fellBack)
                     {
                         await PublishIfChangedAsync(stoppingToken);
                     }
@@ -109,15 +115,16 @@ public sealed class StatusReducerService(
         var pace = status == ClaudeStatus.Working ? _reducer.AggregatePace() : WorkPace.Active;
         var sessions = _reducer.SessionCount;
         var list = _reducer.Sessions();
+        var primary = _reducer.PrimaryId;
         var current = store.Current;
         if (current.Status == status && current.Pace == pace && current.ActiveSessions == sessions
-            && SameSessions(current.Sessions ?? [], list))
+            && current.PrimarySessionId == primary && SameSessions(current.Sessions ?? [], list))
         {
             return;
         }
 
         // Store first, so a client connecting now gets the new value even if it misses the broadcast.
-        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow(), pace, list);
+        var snapshot = new StatusSnapshot(status, sessions, time.GetUtcNow(), pace, list, primary);
         store.Current = snapshot;
         await BroadcastAsync(StatusHubProtocol.SnapshotMethod, snapshot, cancellationToken);
     }

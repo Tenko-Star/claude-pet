@@ -12,9 +12,9 @@ Claude Code ──hook──▶ plugin/scripts/forward-hook.sh ──HTTP POST�
 ```
 
 1. **采集**：`plugin/` 是一个 Claude Code 插件，注册了 `SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SubagentStart`、`SubagentStop`、`Notification`、`Stop`、`StopFailure` 这 11 个 hook，把 hook 的 JSON 原样 POST 给服务。脚本最多耗时 1 秒、不输出、总是 exit 0，服务没开时事件直接丢弃，不会影响 Claude Code。
-2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。每个会话里，主线程和每个子 agent（按 `agent_id` 区分）各自记录状态，会话状态取其中优先级最高的：`Waiting > Working > Thinking > Idle`，所以主线程 `Stop` 后还在跑的后台子 agent 会让会话保持 Working。子 agent 超时（默认 10 分钟）没有事件会被清掉。只显示一个主会话：第一个发来事件的会话成为主会话，其他会话照常记录但不影响显示，也不广播一次性事件；主会话 `SessionEnd` 或超时后，切换到最近有活动的会话，没有其他会话就显示 Idle。
+2. **归约**：服务把事件写入一个 Channel，由唯一的后台任务按 `session_id` 维护每个会话的状态，超时（默认 30 分钟）的会话会被清掉。每个会话里，主线程和每个子 agent（按 `agent_id` 区分）各自记录状态，会话状态取其中优先级最高的：`Waiting > Working > Thinking > Idle`，所以主线程 `Stop` 后还在跑的后台子 agent 会让会话保持 Working。子 agent 超时（默认 10 分钟）没有事件会被清掉。只显示一个主会话：第一个发来事件的会话成为主会话，其他会话照常记录但不影响显示，也不广播一次性事件；主会话 `SessionEnd` 或超时后，优先切换到最近有活动且不处于 Idle 的会话，没有就切换到最近有活动的会话，没有其他会话就显示 Idle。主会话空闲超过 `Status:PrimaryIdleRebind`（默认 3 分钟）后，一旦有不处于 Idle 的会话，就立刻切换过去。
 3. **分发**：客户端连接 SignalR Hub `/hubs/status`，收到两类消息：
-   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。主会话的主线程和子 agent 里只要有一个 Working 的是 `Active` 就取 `Active`。快照还带有 `Sessions`：所有活动会话（按开始顺序）、每个会话最后一轮是否以 `StopFailure` 结束且之后没有新动作（`Failed`），以及它正在运行的子 agent（`agentId`、`agentType`，按开始顺序）。`agent_type` 为空的是 Claude Code 内部的 agent，计入状态但不列出。
+   - `Snapshot`：当前总状态（`Idle` / `Thinking` / `Working` / `Waiting`）和 Working 的节奏 `Pace`（`Active` / `Composing`），新客户端连上立刻收到一份，之后只在变化时推送。主会话的主线程和子 agent 里只要有一个 Working 的是 `Active` 就取 `Active`。快照还带有 `Sessions`：所有活动会话（按开始顺序）、每个会话最后一轮是否以 `StopFailure` 结束且之后没有新动作（`Failed`），以及它正在运行的子 agent（`agentId`、`agentType`，按开始顺序）。`agent_type` 为空的是 Claude Code 内部的 agent，计入状态但不列出。`PrimarySessionId` 是当前主会话的 id，没有会话时为空。
    - `Event`：一次性事件 `Done`（任务完成）、`Error`（出错）和 `ToolFailure`（工具调用失败），不进入快照。
 
 事件到状态的映射：
@@ -190,8 +190,8 @@ dotnet run --project src/DeskPet.App
 
 桌宠身边还有伴随（素材在 `assets/subagent/`，编译时复制到程序目录下的 `companions\`）：
 
-- 每个活动会话是一个橘子，最多 4 个，按左下、右下、左上、右上排在桌宠身体两侧；会话结束时开心地跳一下后像素溶解。会话最后一轮以 `StopFailure` 结束时橘子显示错误表情，会话有新动作后恢复。
-- 每个子 agent 是一个小球，从所属的橘子飞到桌宠头顶的弧上，每弧 8 个，超过就排到更高一层；颜色按所属橘子区分（原色、蓝、绿、紫）。子 agent 结束时开心地跳一下后溶解。
+- 主会话就是桌宠本身，没有橘子。其他每个活动会话是一个橘子，最多 3 个，按左下、右下、左上排在桌宠身体两侧；会话结束或成为主会话时开心地跳一下后像素溶解。会话最后一轮以 `StopFailure` 结束时橘子显示错误表情，会话有新动作后恢复。
+- 每个子 agent 是一个小球，飞到桌宠头顶的弧上，每弧 8 个，超过就排到更高一层。主会话的小球从桌宠出发，是原色；其他会话的小球从所属的橘子出发，颜色按橘子区分（蓝、绿、紫）。子 agent 结束时开心地跳一下后溶解。
 - 窗口在角色舞台四周留出伴随需要的空间，透明区域不接收鼠标。伴随的位置按当前角色图像的轮廓自动计算。
 
 切换节奏：每个状态至少显示 500 毫秒，之后还要等当前这一轮动画走完（进入帧、一串敲击、弹出动画或一圈循环特效）才切。等待期间收到的状态只保留最新的一个，快速变化时会直接跳到最终状态。
@@ -257,3 +257,4 @@ dotnet run --project src/StatusHub.Service    # 前台运行服务，日志直�
 | `Status:SubagentTimeout` | `00:10:00` | 子 agent 多久没有事件就视为过期 |
 | `Status:ExpiryScanInterval` | `00:00:30` | 检查过期会话和子 agent 的间隔 |
 | `Status:ThinkFallback` | `00:00:45` | 工具结束后多久没有新的工具调用就从 Working 退回 Thinking |
+| `Status:PrimaryIdleRebind` | `00:03:00` | 主会话空闲多久后切换到其他正在活动的会话 |

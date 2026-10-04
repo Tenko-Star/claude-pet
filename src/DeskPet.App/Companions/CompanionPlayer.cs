@@ -10,7 +10,8 @@ public readonly record struct CompanionDraw(PixelBuffer Buffer, int X, int Y);
 public sealed record CompanionFrameState(IReadOnlyList<CompanionDraw> Draws, TimeSpan NextChangeAt);
 
 /// <summary>
-/// Companions of the pet: an orange per active session and an orb per running subagent of a session.
+/// Companions of the pet: an orange per active session other than the primary one, and an orb per running subagent
+/// of a session. The primary session is the pet itself, so its orbs fly from the pet and belong to no orange.
 /// Every snapshot's session list is diffed against what is shown: new entries spawn, missing ones finish with a happy
 /// face and dissolve into pixels. A failed session shows its orange's error face until the session moves on.
 /// Oranges and orbs share one state machine; time is injected, so the player is deterministic in tests.
@@ -89,18 +90,22 @@ public sealed class CompanionPlayer
         AssignSlots();
     }
 
-    /// <summary>Shows the sessions of the latest snapshot.</summary>
-    public void Sync(IReadOnlyList<SessionInfo>? sessions, TimeSpan now)
+    /// <summary>Shows the sessions of the latest snapshot; <paramref name="primaryId"/> gets orbs but no orange.</summary>
+    public void Sync(IReadOnlyList<SessionInfo>? sessions, string? primaryId, TimeSpan now)
     {
         Advance(now);
         sessions ??= [];
-        var ids = sessions.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
+        var others = sessions.Where(s => s.SessionId != primaryId).ToList();
+        var ids = others.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
         foreach (var orange in Live().Where(c => c.IsOrange && !ids.Contains(c.Key)).ToList())
         {
             Finish(orange);
         }
 
-        foreach (var session in sessions)
+        var primary = sessions.FirstOrDefault(s => s.SessionId == primaryId);
+        SyncOrbs(null, 0, primary?.Subagents ?? [], _layout.HeadTop.X, _layout.HeadTop.Y);
+
+        foreach (var session in others)
         {
             var orange = Live().FirstOrDefault(c => c.IsOrange && c.Key == session.SessionId);
             if (orange is null)
@@ -111,7 +116,7 @@ public sealed class CompanionPlayer
                     continue; // More sessions than slots: the extra ones are not shown.
                 }
                 var slot = _layout.OrangeSlot(index);
-                orange = Spawn(session.SessionId, null, index, slot.X, slot.Y);
+                orange = Spawn(session.SessionId, null, index, slot.X, slot.Y, isOrange: true);
             }
 
             if (session.Failed && orange.Phase is Phase.Spawning or Phase.Idle)
@@ -123,25 +128,31 @@ public sealed class CompanionPlayer
                 Enter(orange, Phase.Idle);
             }
 
-            var agentIds = session.Subagents.Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
-            foreach (var orb in Live().Where(c => c.Parent == orange && !agentIds.Contains(c.Key)).ToList())
-            {
-                Finish(orb);
-            }
-            foreach (var agent in session.Subagents)
-            {
-                if (Live().Any(c => c.Parent == orange && c.Key == agent.AgentId))
-                {
-                    continue;
-                }
-                if (_companions.Count(c => c.Parent == orange && c.Phase != Phase.Dissolving) >= CompanionLayout.MaxOrbsPerOrange)
-                {
-                    break;
-                }
-                Spawn(agent.AgentId, orange, orange.Index, orange.X, orange.Y);
-            }
+            SyncOrbs(orange, orange.Index + 1, session.Subagents, orange.X, orange.Y);
         }
         AssignSlots();
+    }
+
+    // Diffs one orb group: an orange's orbs, or the primary session's orbs when orange is null.
+    private void SyncOrbs(Companion? orange, int variant, IReadOnlyList<SubagentInfo> agents, double x, double y)
+    {
+        var agentIds = agents.Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
+        foreach (var orb in Live().Where(c => !c.IsOrange && c.Parent == orange && !agentIds.Contains(c.Key)).ToList())
+        {
+            Finish(orb);
+        }
+        foreach (var agent in agents)
+        {
+            if (Live().Any(c => !c.IsOrange && c.Parent == orange && c.Key == agent.AgentId))
+            {
+                continue;
+            }
+            if (_companions.Count(c => !c.IsOrange && c.Parent == orange && c.Phase != Phase.Dissolving) >= CompanionLayout.MaxOrbsPerOrange)
+            {
+                break;
+            }
+            Spawn(agent.AgentId, orange, variant, x, y, isOrange: false);
+        }
     }
 
     /// <summary>The status stream was lost: every companion dissolves without a finishing face.</summary>
@@ -212,10 +223,9 @@ public sealed class CompanionPlayer
         return -1;
     }
 
-    private Companion Spawn(string key, Companion? parent, int index, double x, double y)
+    private Companion Spawn(string key, Companion? parent, int index, double x, double y, bool isOrange)
     {
-        var isOrange = parent is null;
-        var companion = new Companion(key, parent, index)
+        var companion = new Companion(key, parent, index, isOrange)
         {
             X = x,
             Y = y,
@@ -596,18 +606,21 @@ public sealed class CompanionPlayer
     private readonly record struct Pose(
         CompanionFrame Frame, int Dx = 0, int Dy = 0, double Alpha = 1, bool Pixel = false, bool Visible = true);
 
-    private sealed class Companion(string key, Companion? parent, int index)
+    private sealed class Companion(string key, Companion? parent, int index, bool isOrange)
     {
         /// <summary>Session id of an orange, agent id of an orb.</summary>
         public string Key { get; } = key;
 
-        /// <summary>The orange an orb belongs to; null for an orange.</summary>
+        /// <summary>The orange an orb belongs to; null for an orange and for an orb of the primary session.</summary>
         public Companion? Parent { get; } = parent;
 
-        /// <summary>Orange slot 0..3; an orb uses its orange's slot, which also picks its color variant.</summary>
+        /// <summary>
+        /// Orange slot 0..2 for an orange; color variant for an orb: 0 for the primary session, its orange's slot + 1
+        /// otherwise.
+        /// </summary>
         public int Index { get; } = index;
 
-        public bool IsOrange => Parent is null;
+        public bool IsOrange { get; } = isOrange;
 
         public Phase Phase { get; set; } = Phase.Spawning;
 

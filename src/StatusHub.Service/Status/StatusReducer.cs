@@ -18,7 +18,8 @@ namespace StatusHub.Service.Status;
 /// background agent finishes, leaves the status unchanged.
 /// Subagents with an agent type are listed per session in start order; Claude Code's internal agents have none.
 /// Only the primary session is displayed and produces one-shot events. The first session to send an event becomes
-/// primary; when it ends or expires, the most recently active remaining session takes over.
+/// primary; when it ends or expires, the most recently active session that is not Idle takes over, otherwise the most
+/// recently active remaining one. A primary that has been Idle for a while hands over to a session that is not Idle.
 /// </remarks>
 public sealed class StatusReducer
 {
@@ -31,6 +32,9 @@ public sealed class StatusReducer
     private long _nextOrder;
 
     public int SessionCount => _sessions.Count;
+
+    /// <summary>Id of the primary session; null when there are no sessions.</summary>
+    public string? PrimaryId => _primaryId;
 
     /// <summary>Applies one hook event. Returns the one-shot event it produces, if any.</summary>
     public StatusEvent? Apply(HookEvent e)
@@ -185,6 +189,33 @@ public sealed class StatusReducer
         return removed;
     }
 
+    /// <summary>
+    /// Makes the most recently active session that is not Idle primary when the primary has been Idle for at least
+    /// <paramref name="after"/> since its last event. Returns whether the primary changed.
+    /// </summary>
+    public bool RebindIdlePrimary(DateTimeOffset now, TimeSpan after)
+    {
+        if (Primary() is not { } primary
+            || Effective(primary).Status != ClaudeStatus.Idle
+            || now - primary.LastActivity < after)
+        {
+            return false;
+        }
+
+        var next = _sessions
+            .Where(pair => pair.Key != _primaryId && Effective(pair.Value).Status != ClaudeStatus.Idle)
+            .OrderByDescending(pair => pair.Value.LastActivity)
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+        if (next is null)
+        {
+            return false;
+        }
+
+        _primaryId = next;
+        return true;
+    }
+
     /// <summary>Status of the primary session; Idle when there is none.</summary>
     public ClaudeStatus Aggregate() => Primary() is { } session ? Effective(session).Status : ClaudeStatus.Idle;
 
@@ -221,9 +252,19 @@ public sealed class StatusReducer
         }
     }
 
-    /// <summary>Makes the most recently active session primary, or none when no session is left.</summary>
-    private void Rebind() =>
-        _primaryId = _sessions.Count == 0 ? null : _sessions.MaxBy(pair => pair.Value.LastActivity).Key;
+    /// <summary>
+    /// Makes the most recently active session that is not Idle primary, otherwise the most recently active one, or none
+    /// when no session is left.
+    /// </summary>
+    private void Rebind()
+    {
+        var active = _sessions
+            .Where(pair => Effective(pair.Value).Status != ClaudeStatus.Idle)
+            .OrderByDescending(pair => pair.Value.LastActivity)
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+        _primaryId = active ?? (_sessions.Count == 0 ? null : _sessions.MaxBy(pair => pair.Value.LastActivity).Key);
+    }
 
     private Session? Primary() => _primaryId is not null ? _sessions.GetValueOrDefault(_primaryId) : null;
 
